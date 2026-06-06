@@ -2,6 +2,7 @@
 
 import type { ChatItem } from "@/types/chat";
 import CorrectionBubble from "@/components/CorrectionBubble";
+import PronunciationBubble from "@/components/PronunciationBubble";
 
 type Props = {
   item: ChatItem;
@@ -41,7 +42,11 @@ export default function ChatBubble({ item, streamingText, isStreaming }: Props) 
         </div>
 
         {/* 纠错气泡：单独展示在用户消息下方，不混入 AI 对话流 */}
-        {isUser && item.correction && (
+        {isUser && item.pronunciation && (
+          <PronunciationBubble assessment={item.pronunciation} />
+        )}
+
+        {isUser && item.correction && item.correction.correction_type !== "pronunciation" && (
           <CorrectionBubble correction={item.correction} />
         )}
       </div>

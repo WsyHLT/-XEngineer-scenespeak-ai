@@ -37,6 +37,28 @@ export interface Scene {
   icon?: string | null;
 }
 
+export interface WordPronunciationFeedback {
+  word: string;
+  accuracy_score: number;
+  phoneme?: string | null;
+  error_type?: string | null;
+}
+
+export interface PronunciationAssessment {
+  accuracy: number;
+  fluency: number;
+  completeness: number;
+  overall: number;
+  prosody?: number | null;
+  words: WordPronunciationFeedback[];
+  corrections: Correction[];
+}
+
+export interface TranscribeResponse {
+  text: string;
+  asr_engine: string;
+}
+
 export interface Correction {
   original: string;
   corrected: string;

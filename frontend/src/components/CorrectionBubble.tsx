@@ -20,6 +20,26 @@ type Props = {
 };
 
 export default function CorrectionBubble({ correction }: Props) {
+  if (correction.correction_type === "pronunciation") {
+    const phonemeMatch = correction.explanation.match(/\/([^/]+)\//);
+    const phoneme = phonemeMatch?.[1];
+    return (
+      <div
+        className={`mt-2 rounded-xl border px-4 py-3 text-sm ${SEVERITY_STYLE[correction.severity]}`}
+      >
+        <div className="flex items-center gap-3">
+          <div className="text-center">
+            {phoneme ? (
+              <p className="font-mono text-xs opacity-80">/{phoneme}/</p>
+            ) : null}
+            <p className="font-semibold">{correction.original}</p>
+          </div>
+          <p className="text-xs opacity-80">{correction.explanation}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={`mt-2 rounded-xl border px-4 py-3 text-sm ${SEVERITY_STYLE[correction.severity]}`}

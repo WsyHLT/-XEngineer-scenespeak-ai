@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 
 import AudioChat from "@/components/AudioChat";
 import SceneDashboard from "@/components/SceneDashboard";
@@ -8,6 +8,14 @@ import { fetchScenes, startSession } from "@/lib/api";
 import type { Scene } from "@/types/api";
 
 type View = "dashboard" | "chat";
+
+function ChatLoader() {
+  return (
+    <div className="flex h-screen items-center justify-center bg-[#0B0F19] text-slate-400">
+      正在加载通话舱…
+    </div>
+  );
+}
 
 export default function HomePage() {
   const [view, setView] = useState<View>("dashboard");
@@ -50,26 +58,29 @@ export default function HomePage() {
 
   if (view === "chat" && sessionId && activeScene && startedAt) {
     return (
-      <AudioChat
-        sessionId={sessionId}
-        scene={activeScene}
-        startedAt={startedAt}
-        onExit={handleExit}
-      />
+      <Suspense fallback={<ChatLoader />}>
+        <AudioChat
+          sessionId={sessionId}
+          scene={activeScene}
+          startedAt={startedAt}
+          onExit={handleExit}
+        />
+      </Suspense>
     );
   }
 
   return (
     <>
       {error && (
-        <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl bg-red-50 px-4 py-2 text-sm text-red-700 shadow-lg ring-1 ring-red-200">
+        <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl border border-rose-500/30 bg-rose-950/90 px-4 py-2 text-sm text-rose-200 shadow-neon backdrop-blur-md">
           {error}
         </div>
       )}
       <SceneDashboard
-        scenes={scenes}
+        backendScenes={scenes}
         loading={loading}
         onSelect={handleSelectScene}
+        onSelectError={setError}
       />
     </>
   );
