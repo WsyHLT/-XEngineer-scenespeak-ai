@@ -74,3 +74,104 @@ async def health_llm() -> dict:
         return {"ok": True, "model": settings.llm_model, "sample": text.strip()[:50]}
     except Exception as exc:
         return {"ok": False, "model": settings.llm_model, "error": str(exc)}
+
+
+@app.get("/health/stt")
+async def health_stt() -> dict:
+    """检测 ASR 配置。"""
+    provider = settings.stt_provider
+    if provider == "bailian":
+        if not (settings.stt_api_key or settings.openai_api_key):
+            return {
+                "ok": False,
+                "provider": "bailian",
+                "model": settings.stt_model,
+                "error": "STT_API_KEY 未配置",
+                "hint": "https://bailian.console.aliyun.com/",
+            }
+        return {
+            "ok": True,
+            "provider": "bailian",
+            "model": settings.stt_model,
+            "language": settings.bailian_asr_language,
+        }
+    if provider == "sensevoice":
+        return {
+            "ok": True,
+            "provider": "sensevoice",
+            "model": settings.sensevoice_model,
+            "device": settings.sensevoice_device,
+            "hint": "需 pip install funasr；未安装时自动回退 dashscope",
+        }
+    if provider == "dashscope" and not settings.stt_api_key:
+        return {
+            "ok": False,
+            "provider": provider,
+            "error": "STT_API_KEY 未配置",
+            "hint": "https://bailian.console.aliyun.com/",
+        }
+    return {
+        "ok": True,
+        "provider": provider,
+        "model": settings.stt_model,
+    }
+
+
+@app.get("/health/pronunciation")
+async def health_pronunciation() -> dict:
+    provider = settings.pronunciation_provider.lower()
+
+    if provider == "tencent":
+        from app.services.pronunciation_tencent_v2 import _is_configured
+
+        if not _is_configured():
+            return {
+                "ok": False,
+                "provider": "tencent-v2",
+                "error": "TENCENT_APP_ID / SECRET_ID / SECRET_KEY 未配置",
+                "hint": "https://console.cloud.tencent.com/cam/capi",
+            }
+        return {
+            "ok": True,
+            "provider": "tencent-v2",
+            "engine": settings.tencent_soe_engine,
+            "app_id": settings.tencent_app_id,
+        }
+
+    from app.services.pronunciation_azure import _is_configured
+
+    if not _is_configured():
+        return {
+            "ok": False,
+            "provider": "azure",
+            "error": "AZURE_SPEECH_KEY / AZURE_SPEECH_REGION 未配置",
+            "hint": "https://portal.azure.com → Speech 服务",
+        }
+    return {
+        "ok": True,
+        "provider": "azure",
+        "language": settings.azure_pronunciation_language,
+    }
+
+
+@app.get("/health/tts")
+async def health_tts() -> dict:
+    provider = settings.tts_provider.lower()
+    if provider == "volcano":
+        from app.services.tts_volcano import _is_configured
+
+        if not _is_configured():
+            return {
+                "ok": False,
+                "provider": "volcano",
+                "error": "VOLCANO_APP_ID / VOLCANO_ACCESS_TOKEN 未配置",
+                "hint": "https://console.volcengine.com/speech/service/8",
+            }
+        return {
+            "ok": True,
+            "provider": "volcano",
+            "voice": settings.volcano_voice_type,
+        }
+    if not settings.openai_api_key:
+        return {"ok": False, "provider": provider, "error": "OPENAI_API_KEY 未配置"}
+    return {"ok": True, "provider": provider, "model": settings.tts_model}

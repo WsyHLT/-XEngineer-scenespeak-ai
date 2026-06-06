@@ -17,6 +17,20 @@ python-dotenv>=1.0.0
 # Audio processing (STT / TTS pipeline)
 python-multipart>=0.0.12
 numpy>=1.26.0
+# 级联架构 · ASR（SenseVoice 推荐）
+# pip install funasr modelscope torch torchaudio  # 首次使用 SenseVoice
+# STT_PROVIDER=sensevoice 时无需 STT_API_KEY；未装 FunASR 自动回退 dashscope
+
+# 路线 B · ASR（百炼 Qwen-ASR Realtime）
+dashscope>=1.20.0
+
+# 路线 B · 发音评测（腾讯云 SOE 新版 WebSocket，无需旧版 SDK）
+# 可选 legacy：tencentcloud-sdk-python-soe（基础版，已停服）
+
+# 发音评测备选（Azure Speech）
+azure-cognitiveservices-speech>=1.42.0
+# 可选：无 ffmpeg 时用 PyAV 解码浏览器录音
+# av>=12.0.0
 
 # Utilities
 python-json-logger>=2.0.7

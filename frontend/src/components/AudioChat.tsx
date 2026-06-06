@@ -3,18 +3,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import ChatBubble from "@/components/ChatBubble";
+import MicDeviceSelect from "@/components/MicDeviceSelect";
 import RecordButton from "@/components/RecordButton";
+import RecordModeToggle from "@/components/RecordModeToggle";
 import SessionReportModal from "@/components/SessionReportModal";
+import TranscriptReviewPanel from "@/components/TranscriptReviewPanel";
 import { useAudioRecorder, type RecordMode } from "@/hooks/useAudioRecorder";
-import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
+import { useTextToSpeech } from "@/hooks/useTextToSpeech";
 import {
+  assessPronunciation,
   buildDemoReport,
   initConversation,
   sendMessageStream,
   transcribeAudio,
 } from "@/lib/api";
 import { AudioTransport } from "@/lib/audioTransport";
-import type { VoiceMode } from "@/hooks/useSpeechRecognition";
 import type { ChatItem } from "@/types/chat";
 import type { Correction, Scene, TurnEventPayload } from "@/types/api";
 
@@ -39,13 +42,16 @@ export default function AudioChat({
   const [isProcessing, setIsProcessing] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
   const [recordMode, setRecordMode] = useState<RecordMode>("hold");
-  const [voiceMode, setVoiceMode] = useState<VoiceMode>("browser");
+  const [showMicSettings, setShowMicSettings] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [textInput, setTextInput] = useState("");
+  const [transcriptReview, setTranscriptReview] = useState<string | null>(null);
+  const [asrEngine, setAsrEngine] = useState<string | null>(null);
   const [wsAvailable, setWsAvailable] = useState(false);
   const [voiceHint, setVoiceHint] = useState(
-    "按住红色按钮说英文；松开后 AI 会回复",
+    "按住麦克风说英文；AI 会用英文朗读回复",
   );
+  const [micDeviceId, setMicDeviceId] = useState<string | null>(null);
   const [report, setReport] = useState<ReturnType<typeof buildDemoReport> | null>(null);
   const [correctionsLog, setCorrectionsLog] = useState<
     { user_utterance: string; correction: Correction }[]
@@ -55,6 +61,10 @@ export default function AudioChat({
   const transportRef = useRef<AudioTransport | null>(null);
   const turnCountRef = useRef(0);
   const pendingTranscriptRef = useRef<string | null>(null);
+  const pendingAudioRef = useRef<{ blob: Blob; filename: string } | null>(null);
+  const tts = useTextToSpeech();
+  const speakRef = useRef(tts.speak);
+  speakRef.current = tts.speak;
 
   const scrollToBottom = useCallback(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -106,6 +116,7 @@ export default function AudioChat({
                   },
                 ];
               });
+              speakRef.current(event.message.content);
             }
             setStreamingId(null);
             setStreamingText("");
@@ -170,6 +181,73 @@ export default function AudioChat({
     [applyStreamEvents, isProcessing, sessionId],
   );
 
+  const openTranscriptReview = useCallback((text: string) => {
+    setTranscriptReview(text);
+    setVoiceHint("确认识别结果无误后，点击「确认发送」（请说英文）");
+  }, []);
+
+  const cancelTranscriptReview = useCallback(() => {
+    setTranscriptReview(null);
+    setAsrEngine(null);
+    pendingAudioRef.current = null;
+    setVoiceHint("按住麦克风说英文；AI 会用英文朗读回复");
+  }, []);
+
+  const confirmTranscriptReview = useCallback(async () => {
+    const text = transcriptReview?.trim();
+    if (!text || isProcessing) return;
+
+    const pending = pendingAudioRef.current;
+    setTranscriptReview(null);
+    setAsrEngine(null);
+    pendingAudioRef.current = null;
+    setIsProcessing(true);
+    setVoiceHint("");
+    turnCountRef.current += 1;
+
+    let userMsgId = "";
+
+    try {
+      const assessPromise = pending
+        ? assessPronunciation(pending.blob, text, pending.filename).catch((err) => {
+            const msg = err instanceof Error ? err.message : "发音评测失败";
+            setVoiceHint(`发音评测失败：${msg.slice(0, 120)}`);
+            return null;
+          })
+        : Promise.resolve(null);
+
+      const chatTask = applyStreamEvents(
+        (async function* () {
+          for await (const event of sendMessageStream(sessionId, text)) {
+            if (event.kind === "user_message") {
+              userMsgId = event.message_id;
+            }
+            yield event;
+          }
+        })(),
+      );
+
+      const [assessment] = await Promise.all([assessPromise, chatTask]);
+
+      if (assessment && userMsgId) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === userMsgId ? { ...m, pronunciation: assessment } : m,
+          ),
+        );
+        scrollToBottom();
+      }
+    } catch (e) {
+      let msg = e instanceof Error ? e.message : "发送失败";
+      if (msg.includes("api_key") || msg.includes("credentials")) {
+        msg = "后端未读取到 API Key，请在 backend/.env 配置 OPENAI_API_KEY";
+      }
+      setVoiceHint(msg);
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [applyStreamEvents, isProcessing, scrollToBottom, sessionId, transcriptReview]);
+
   /** WebSocket 音频传输（后端 STT 实现后自动启用） */
   const initTransport = useCallback(() => {
     const wsBase =
@@ -189,47 +267,56 @@ export default function AudioChat({
     transportRef.current = transport;
   }, [sessionId]);
 
-  const speech = useSpeechRecognition(
-    (text) => {
-      void sendText(text);
-    },
-    () => {
-      setVoiceHint("未识别到语音：请按住按钮、清晰说英文后再松开");
-    },
-  );
-
   const handleRecordedAudio = useCallback(
     async (blob: Blob, mimeType: string) => {
       if (blob.size < 500) {
-        setVoiceHint("录音太短，请按住按钮多说 1-2 秒");
+        setVoiceHint("录音太短，请按住按钮至少 1 秒再说");
         return;
       }
       setIsTranscribing(true);
       setVoiceHint("正在识别语音…");
       try {
         const ext = mimeType.includes("mp4") ? "recording.mp4" : "recording.webm";
-        const text = await transcribeAudio(blob, ext);
-        await sendText(text);
+        pendingAudioRef.current = { blob, filename: ext };
+        const { text, asr_engine } = await transcribeAudio(blob, ext);
+        setAsrEngine(asr_engine);
+        openTranscriptReview(text);
+        if (/[\u4e00-\u9fff]/.test(text)) {
+          setVoiceHint("识别结果含中文：请说英文，可手动修改或重新录音");
+        }
       } catch (e) {
-        const msg = e instanceof Error ? e.message : "语音识别失败";
-        setVoiceHint(
-          msg.includes("DeepSeek") || msg.includes("STT")
-            ? "DeepSeek 不支持语音转文字。请在 backend/.env 配置 Groq Whisper（见说明）"
-            : msg,
-        );
+        let msg = e instanceof Error ? e.message : "语音识别失败";
+        if (msg.includes("403") || msg.includes("Forbidden")) {
+          msg =
+            "海外 STT 服务返回 403。请确认 backend/.env 已配置 STT_PROVIDER=dashscope 和百炼 API Key";
+        } else if (msg.includes("404")) {
+          msg = "STT 接口不存在，请重启后端：uvicorn app.main:app --reload --port 8000";
+        } else if (msg.includes("DeepSeek")) {
+          msg = "DeepSeek 不支持语音，请配置 STT_PROVIDER=dashscope";
+        } else if (
+          msg.includes("name resolution") ||
+          msg.includes("Cannot connect to host") ||
+          msg.includes("DNS") ||
+          msg.includes("DashScope（DNS")
+        ) {
+          msg =
+            "无法连接阿里云语音服务（网络/DNS 异常）。请检查网络，或开代理后在 .env 设置 STT_HTTP_PROXY=http://127.0.0.1:7890 并重启后端";
+        }
+        setVoiceHint(msg);
       } finally {
         setIsTranscribing(false);
       }
     },
-    [sendText],
+    [openTranscriptReview],
   );
 
   const recorder = useAudioRecorder({
+    deviceId: micDeviceId,
     onChunk: (blob, mimeType) => {
       transportRef.current?.sendChunk(blob, mimeType);
     },
     onComplete: (blob, mimeType) => {
-      if (voiceMode === "record" && !wsAvailable) {
+      if (!wsAvailable) {
         void handleRecordedAudio(blob, mimeType);
       }
     },
@@ -237,23 +324,15 @@ export default function AudioChat({
 
   const handleRecordStart = useCallback(() => {
     setVoiceHint("");
+    tts.stop();
 
     if (wsAvailable && transportRef.current?.isConnected) {
-      speech.reset();
       void recorder.start();
       return;
     }
 
-    if (voiceMode === "browser") {
-      speech.reset();
-      speech.startListening();
-      return;
-    }
-
-    // 录音识别模式：仅 MediaRecorder，不与浏览器 STT 抢麦克风
-    speech.reset();
     void recorder.start();
-  }, [recorder, speech, voiceMode, wsAvailable]);
+  }, [recorder, tts, wsAvailable]);
 
   const handleRecordEnd = useCallback(() => {
     if (wsAvailable && transportRef.current?.isConnected) {
@@ -261,22 +340,17 @@ export default function AudioChat({
       transportRef.current.sendEnd();
       const text = pendingTranscriptRef.current;
       pendingTranscriptRef.current = null;
-      if (text) void sendText(text);
-      return;
-    }
-
-    if (voiceMode === "browser") {
-      speech.stopListening();
+      if (text) openTranscriptReview(text);
       return;
     }
 
     if (recorder.isRecording) recorder.stop();
-  }, [recorder, sendText, speech, voiceMode, wsAvailable]);
+  }, [openTranscriptReview, recorder, wsAvailable]);
 
   const handleRecordToggle = useCallback(() => {
-    if (recorder.isRecording || speech.isListening) handleRecordEnd();
-    else handleRecordStart();
-  }, [handleRecordEnd, handleRecordStart, recorder.isRecording, speech.isListening]);
+    if (recorder.isRecording) handleRecordEnd();
+    else void handleRecordStart();
+  }, [handleRecordEnd, handleRecordStart, recorder.isRecording]);
 
   /** 初始化 AI 开场白 */
   useEffect(() => {
@@ -307,6 +381,7 @@ export default function AudioChat({
             ]);
             setStreamingId(null);
             setStreamingText("");
+            speakRef.current(ev.message.content);
           }
         }
       } catch {
@@ -329,6 +404,7 @@ export default function AudioChat({
   }, [messages, streamingText, scrollToBottom]);
 
   const handleEndSession = () => {
+    tts.stop();
     const demoReport = buildDemoReport(
       sessionId,
       scene,
@@ -346,21 +422,32 @@ export default function AudioChat({
     setTextInput("");
   };
 
-  const isListening =
-    voiceMode === "browser"
-      ? speech.isListening
-      : recorder.isRecording;
+  const isListening = recorder.isRecording;
+  const isReviewing = transcriptReview !== null;
   const isBusy = isProcessing || isInitializing || isTranscribing;
 
-  const statusLabel = isTranscribing
-    ? "正在识别语音…"
-    : isProcessing
-      ? "AI 思考中…"
-      : speech.isListening
-        ? "正在聆听，请说英文…"
-        : recorder.isRecording
-          ? "正在录音…"
-          : undefined;
+  const statusLabel = isReviewing
+    ? "请确认识别文字"
+    : isTranscribing
+      ? "正在识别语音…"
+      : tts.isSpeaking
+        ? "AI 正在朗读…"
+        : isProcessing
+          ? "AI 思考中…"
+          : recorder.isRecording
+            ? recordMode === "hold"
+              ? "正在录音，松开结束"
+              : "正在录音，点击停止"
+            : undefined;
+
+  const defaultVoiceHint = "按住麦克风说英文；AI 会用英文朗读回复";
+  const footerStatus =
+    recorder.error ||
+    statusLabel ||
+    (voiceHint !== defaultVoiceHint ? voiceHint : null);
+
+  const inputPlaceholder =
+    recordMode === "hold" ? "输入英文，或按住左侧麦克风说话…" : "输入英文，或点击左侧麦克风录音…";
 
   return (
     <>
@@ -383,13 +470,38 @@ export default function AudioChat({
             </h1>
             <p className="text-xs text-slate-400">{scene.name}</p>
           </div>
-          <button
-            type="button"
-            onClick={handleEndSession}
-            className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-200"
-          >
-            结束
-          </button>
+          <div className="flex items-center gap-2">
+            {tts.isSupported && (
+              <button
+                type="button"
+                onClick={tts.toggleEnabled}
+                title={tts.enabled ? "关闭 AI 朗读" : "开启 AI 朗读"}
+                className={`rounded-lg p-2 transition-colors ${
+                  tts.enabled
+                    ? "bg-indigo-50 text-indigo-600 hover:bg-indigo-100"
+                    : "text-slate-400 hover:bg-slate-100"
+                }`}
+                aria-label={tts.enabled ? "关闭 AI 朗读" : "开启 AI 朗读"}
+              >
+                {tts.isSpeaking ? (
+                  <svg className="h-5 w-5 animate-pulse" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M3 10v4h4l5 5V5L7 10H3zm13.5 2c0-1.77-1.02-3.29-2.5-4.03v8.06c1.48-.74 2.5-2.26 2.5-4.03z" />
+                  </svg>
+                ) : (
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072M12 6v12m-2-2.5L5 18H3V6h2l5-3.5V15.5z" />
+                  </svg>
+                )}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleEndSession}
+              className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-200"
+            >
+              结束
+            </button>
+          </div>
         </header>
 
         {/* 对话区 */}
@@ -415,107 +527,93 @@ export default function AudioChat({
           </div>
         </main>
 
-        {/* 底部控制区 */}
-        <footer className="shrink-0 border-t border-slate-200/80 bg-white/90 px-4 py-5 backdrop-blur-md">
+        {/* 底部输入栏 */}
+        <footer className="shrink-0 border-t border-slate-200/80 bg-white/90 px-3 py-2 backdrop-blur-md">
           <div className="mx-auto max-w-2xl">
-            {/* 语音模式切换 */}
-            <div className="mb-3 flex justify-center gap-2">
-              {(
-                [
-                  { id: "record" as VoiceMode, label: "录音识别（推荐）" },
-                  { id: "browser" as VoiceMode, label: "浏览器识别" },
-                ] as const
-              ).map(({ id, label }) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setVoiceMode(id)}
-                  className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                    voiceMode === id
-                      ? "bg-indigo-100 text-indigo-700"
-                      : "text-slate-400 hover:text-slate-600"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            {transcriptReview !== null && (
+              <div className="mb-2">
+                <TranscriptReviewPanel
+                  text={transcriptReview}
+                  asrEngine={asrEngine}
+                  onChange={setTranscriptReview}
+                  onConfirm={() => void confirmTranscriptReview()}
+                  onCancel={cancelTranscriptReview}
+                  disabled={isProcessing}
+                />
+              </div>
+            )}
 
-            {/* 录音方式 */}
-            <div className="mb-4 flex justify-center gap-2">
-              {(["hold", "toggle"] as RecordMode[]).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setRecordMode(m)}
-                  className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                    recordMode === m
-                      ? "bg-indigo-100 text-indigo-700"
-                      : "text-slate-400 hover:text-slate-600"
-                  }`}
-                >
-                  {m === "hold" ? "按住说话" : "点击开关"}
-                </button>
-              ))}
-            </div>
+            {showMicSettings && (
+              <div className="mb-2 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1.5">
+                <MicDeviceSelect onDeviceChange={setMicDeviceId} />
+              </div>
+            )}
 
-            <div className="flex flex-col items-center">
+            <form onSubmit={handleTextSubmit} className="flex items-center gap-1.5">
               <RecordButton
+                compact
                 mode={recordMode}
                 isRecording={isListening}
                 isProcessing={isBusy && !isListening}
                 statusLabel={statusLabel}
-                disabled={
-                  isInitializing ||
-                  (voiceMode === "browser" && !speech.isSupported) ||
-                  (voiceMode === "record" && !recorder.isSupported)
-                }
+                disabled={isInitializing || isReviewing || !recorder.isSupported}
                 onPressStart={handleRecordStart}
                 onPressEnd={handleRecordEnd}
                 onToggle={handleRecordToggle}
               />
-
-              {(voiceHint || recorder.error || speech.error) && (
-                <p className={`mt-2 max-w-md text-center text-xs ${speech.error || recorder.error ? "text-red-500" : "text-slate-500"}`}>
-                  {speech.error || recorder.error || voiceHint}
-                </p>
-              )}
-
-              {speech.isListening && speech.transcript && (
-                <p className="mt-2 max-w-md text-center text-sm text-indigo-600">
-                  「{speech.transcript}」
-                </p>
-              )}
-
-              {voiceMode === "record" && !wsAvailable && (
-                <p className="mt-1 text-center text-xs text-slate-400">
-                  录音识别需配置 STT（Groq Whisper）；DeepSeek 仅支持文字对话
-                </p>
-              )}
-
-              {!recorder.isSupported && !speech.isSupported && (
-                <p className="mt-2 text-xs text-amber-600">麦克风不可用，请使用文字输入</p>
-              )}
-            </div>
-
-            {/* 文字输入降级 */}
-            <form onSubmit={handleTextSubmit} className="mt-4 flex gap-2">
+              <RecordModeToggle
+                mode={recordMode}
+                onChange={setRecordMode}
+                disabled={isBusy || isListening}
+              />
               <input
                 type="text"
                 value={textInput}
                 onChange={(e) => setTextInput(e.target.value)}
-                placeholder="或输入英文文字…"
+                placeholder={inputPlaceholder}
                 disabled={isBusy}
-                className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 disabled:opacity-50"
+                className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 disabled:opacity-50"
               />
+              <button
+                type="button"
+                onClick={() => setShowMicSettings((v) => !v)}
+                title="麦克风设置"
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors ${
+                  showMicSettings
+                    ? "border-indigo-200 bg-indigo-50 text-indigo-600"
+                    : "border-slate-200 bg-white text-slate-400 hover:border-slate-300 hover:text-slate-600"
+                }`}
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 14a3 3 0 003-3V5a3 3 0 10-6 0v6a3 3 0 003 3z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a1 1 0 10-2 0 5 5 0 01-10 0 1 1 0 10-2 0 7 7 0 006 6.92V19H9a1 1 0 100 2h6a1 1 0 100-2h-2v-1.08A7 7 0 0019 11z" />
+                </svg>
+              </button>
               <button
                 type="submit"
                 disabled={isBusy || !textInput.trim()}
-                className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                className="shrink-0 rounded-xl bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
               >
                 发送
               </button>
             </form>
+
+            {footerStatus && (
+              <p
+                className={`mt-1 truncate text-center text-[11px] ${
+                  recorder.error ? "text-red-500" : "text-slate-500"
+                }`}
+                title={footerStatus}
+              >
+                {footerStatus}
+              </p>
+            )}
+
+            {!recorder.isSupported && (
+              <p className="mt-1 text-center text-[11px] text-amber-600">
+                麦克风不可用，请用文字输入
+              </p>
+            )}
           </div>
         </footer>
       </div>

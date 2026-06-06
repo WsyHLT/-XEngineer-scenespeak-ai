@@ -1,14 +1,18 @@
 import json
 import logging
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
+from app.core.config import settings
+from app.schemas.pronunciation import PronunciationAssessment
 from app.services.conversation_service import conversation_orchestrator
+from app.services.pronunciation_service import assess_pronunciation
 from app.services.session_store import session_store
 from app.services.stream_utils import turn_event_to_sse
 from app.services.stt_service import transcribe_audio
+from app.services.tts_service import synthesize_speech
 
 logger = logging.getLogger(__name__)
 
@@ -30,31 +34,92 @@ class SessionInitRequest(BaseModel):
 
 class TranscribeResponse(BaseModel):
     text: str
+    asr_engine: str = Field(description="ASR 提供方：bailian / sensevoice / dashscope / openai")
+
+
+class SynthesizeRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=2000, description="待合成英文文本")
 
 
 @router.post("/transcribe", response_model=TranscribeResponse)
 async def transcribe(file: UploadFile = File(...)) -> TranscribeResponse:
-    """上传录音文件，返回英文转写文本（Whisper / Groq STT）。"""
+    """路线 B · 听：上传录音 → 百炼 Qwen-ASR / 备选 SenseVoice / Paraformer。"""
     if not file.content_type or not file.content_type.startswith("audio"):
         # 部分浏览器上传 webm 时 content_type 可能为空，仍尝试处理
         pass
+    audio_bytes = b""
     try:
         audio_bytes = await file.read()
         if len(audio_bytes) < 100:
             raise HTTPException(status_code=400, detail="录音太短，请按住按钮多说几句")
         text = await transcribe_audio(audio_bytes, file.filename or "audio.webm")
-        return TranscribeResponse(text=text)
+        return TranscribeResponse(text=text, asr_engine=settings.stt_provider)
     except ValueError as exc:
+        logger.warning(
+            "STT 400: %s (size=%d bytes, file=%s)",
+            exc,
+            len(audio_bytes),
+            file.filename,
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("STT failed")
         detail = str(exc)
-        if "does not support" in detail.lower() or "not found" in detail.lower():
+        if "403" in detail or "Forbidden" in detail:
             detail = (
-                "DeepSeek 不支持语音转文字。请在 .env 单独配置 Groq Whisper："
+                "Groq/OpenAI STT 返回 403。国内请改用 DashScope："
+                "STT_PROVIDER=dashscope + STT_API_KEY=百炼Key"
+            )
+        elif "DashScope" in detail or "dashscope" in detail.lower():
+            pass
+        elif "does not support" in detail.lower():
+            detail = (
+                "DeepSeek 不支持语音转文字。请单独配置 Groq："
                 "STT_API_KEY + STT_BASE_URL=https://api.groq.com/openai/v1"
             )
         raise HTTPException(status_code=502, detail=detail) from exc
+
+
+@router.post("/assess-pronunciation", response_model=PronunciationAssessment)
+async def assess_pronunciation_route(
+    file: UploadFile = File(...),
+    reference_text: str = Form(...),
+) -> PronunciationAssessment:
+    """
+    路线 B · 评测：腾讯云智聆 SOE（新版 WebSocket）。
+    需传入用户确认后的参考文本 + 同一段录音。
+    """
+    if not reference_text.strip():
+        raise HTTPException(status_code=400, detail="reference_text 不能为空")
+    audio_bytes = await file.read()
+    if len(audio_bytes) < 100:
+        raise HTTPException(status_code=400, detail="录音太短")
+    try:
+        return await assess_pronunciation(
+            audio_bytes,
+            reference_text.strip(),
+            file.filename or "audio.webm",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ImportError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Pronunciation assessment failed")
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/synthesize")
+async def synthesize(body: SynthesizeRequest) -> Response:
+    """路线 B · 说：文本 → 火山引擎 TTS（或 OpenAI 备选）→ 返回音频。"""
+    try:
+        audio_bytes, content_type = await synthesize_speech(body.text)
+        return Response(content=audio_bytes, media_type=content_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("TTS failed")
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.post("/init")

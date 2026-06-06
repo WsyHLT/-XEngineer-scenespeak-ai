@@ -4,10 +4,13 @@ import type {
   SceneListResponse,
   SessionReport,
   SessionStartResponse,
+  TranscribeResponse,
   TurnEventPayload,
+  PronunciationAssessment,
 } from "@/types/api";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+/** 默认走同源代理（next.config rewrites）；仅调试时设 NEXT_PUBLIC_API_URL */
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -95,7 +98,10 @@ export async function* consumeSSE(
   }
 }
 
-export async function transcribeAudio(blob: Blob, filename = "recording.webm"): Promise<string> {
+export async function transcribeAudio(
+  blob: Blob,
+  filename = "recording.webm",
+): Promise<TranscribeResponse> {
   const form = new FormData();
   form.append("file", blob, filename);
   const res = await fetch(`${API_BASE}/api/chat/transcribe`, {
@@ -110,10 +116,78 @@ export async function transcribeAudio(blob: Blob, filename = "recording.webm"): 
     } catch {
       // keep raw text
     }
+    if (res.status === 404) {
+      throw new Error(
+        "STT 接口不存在 (404)：请重启后端 uvicorn app.main:app --reload --port 8000",
+      );
+    }
     throw new Error(detail || `STT failed HTTP ${res.status}`);
   }
-  const data = (await res.json()) as { text: string };
-  return data.text;
+  const data = (await res.json()) as TranscribeResponse;
+  const text = (data.text ?? "").trim();
+  if (!text || text.toLowerCase() === "none") {
+    throw new Error("未识别到语音内容，请靠近麦克风清晰说英文");
+  }
+  return { ...data, text };
+}
+
+export async function assessPronunciation(
+  blob: Blob,
+  referenceText: string,
+  filename = "recording.webm",
+): Promise<PronunciationAssessment> {
+  const form = new FormData();
+  form.append("file", blob, filename);
+  form.append("reference_text", referenceText.trim());
+  const res = await fetch(`${API_BASE}/api/chat/assess-pronunciation`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    let detail = await res.text();
+    try {
+      const j = JSON.parse(detail) as { detail?: string };
+      if (j.detail) detail = j.detail;
+    } catch {
+      // keep
+    }
+    throw new Error(detail || `发音评测失败 HTTP ${res.status}`);
+  }
+  return res.json() as Promise<PronunciationAssessment>;
+}
+
+export async function synthesizeSpeech(
+  text: string,
+  timeoutMs = 8_000,
+): Promise<Blob> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${API_BASE}/api/chat/synthesize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: text.trim() }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      let detail = await res.text();
+      try {
+        const j = JSON.parse(detail) as { detail?: string };
+        if (j.detail) detail = j.detail;
+      } catch {
+        // keep
+      }
+      throw new Error(detail || `TTS failed HTTP ${res.status}`);
+    }
+    return res.blob();
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("TTS 请求超时，已切换浏览器朗读");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function initConversation(sessionId: string): Promise<TurnEventPayload[]> {

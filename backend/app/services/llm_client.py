@@ -13,6 +13,17 @@ logger = logging.getLogger(__name__)
 ChatMessage = dict[str, str]  # {"role": "...", "content": "..."}
 
 
+def _extra_llm_body() -> dict[str, Any] | None:
+    """百炼 DeepSeek V4 默认开思考模式，口语陪练需关闭以降低首字延迟。"""
+    if settings.llm_enable_thinking:
+        return None
+    base = settings.openai_base_url.lower()
+    model_hint = f"{settings.llm_model} {settings.correction_model}".lower()
+    if "dashscope.aliyuncs.com" in base or "deepseek-v4" in model_hint or "deepseek-v3.2" in model_hint:
+        return {"enable_thinking": False}
+    return None
+
+
 def _friendly_llm_error(exc: Exception) -> str:
     if isinstance(exc, APITimeoutError):
         return (
@@ -21,8 +32,9 @@ def _friendly_llm_error(exc: Exception) -> str:
         )
     if isinstance(exc, APIConnectionError):
         return (
-            "LLM 网络连接失败：请确认 OPENAI_BASE_URL 可访问，"
-            "或配置 HTTP_PROXY 环境变量。"
+            "LLM 网络连接失败：无法访问 DeepSeek/OpenAI。"
+            "请运行 curl http://localhost:8000/health/llm 自检；"
+            "若不通，在 .env 配置 LLM_HTTP_PROXY 或检查网络。"
         )
     if isinstance(exc, AuthenticationError):
         return "LLM API Key 无效，请检查 backend/.env 中的 OPENAI_API_KEY。"
@@ -37,12 +49,18 @@ class LLMClient:
 
     def __init__(self) -> None:
         timeout = httpx.Timeout(settings.llm_timeout_seconds, connect=30.0)
-        self._client = AsyncOpenAI(
-            api_key=settings.openai_api_key,
-            base_url=settings.openai_base_url,
-            timeout=timeout,
-            max_retries=1,
-        )
+        client_kwargs: dict = {
+            "api_key": settings.openai_api_key,
+            "base_url": settings.openai_base_url,
+            "timeout": timeout,
+            "max_retries": 2,
+        }
+        if settings.llm_http_proxy:
+            client_kwargs["http_client"] = httpx.AsyncClient(
+                proxy=settings.llm_http_proxy,
+                timeout=timeout,
+            )
+        self._client = AsyncOpenAI(**client_kwargs)
 
     async def stream_chat(
         self,
@@ -58,12 +76,18 @@ class LLMClient:
         max_tokens = max_tokens or settings.coach_max_tokens
 
         try:
+            kwargs: dict[str, Any] = {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "stream": True,
+            }
+            extra = _extra_llm_body()
+            if extra:
+                kwargs["extra_body"] = extra
             stream = await self._client.chat.completions.create(
-                model=model,
-                messages=messages,  # type: ignore[arg-type]
-                temperature=temperature,
-                max_tokens=max_tokens,
-                stream=True,
+                **kwargs,  # type: ignore[arg-type]
             )
 
             async for chunk in stream:
@@ -88,13 +112,19 @@ class LLMClient:
         max_tokens = max_tokens or settings.correction_max_tokens
 
         try:
+            kwargs: dict[str, Any] = {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "response_format": {"type": "json_object"},
+                "stream": False,
+            }
+            extra = _extra_llm_body()
+            if extra:
+                kwargs["extra_body"] = extra
             response = await self._client.chat.completions.create(
-                model=model,
-                messages=messages,  # type: ignore[arg-type]
-                temperature=temperature,
-                max_tokens=max_tokens,
-                response_format={"type": "json_object"},
-                stream=False,
+                **kwargs,  # type: ignore[arg-type]
             )
         except Exception as exc:
             logger.exception("LLM JSON call failed")

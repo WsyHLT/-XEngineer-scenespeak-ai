@@ -2,6 +2,8 @@
 
 import { useCallback, useRef, useState } from "react";
 
+import { getStoredMicDeviceId } from "@/lib/micDevices";
+
 export type RecordMode = "hold" | "toggle";
 
 export type UseAudioRecorderOptions = {
@@ -9,23 +11,27 @@ export type UseAudioRecorderOptions = {
   onChunk?: (blob: Blob, mimeType: string) => void;
   /** 录音完整结束 — 返回合并后的 Blob */
   onComplete?: (blob: Blob, mimeType: string) => void;
+  /** 指定麦克风 deviceId；不传则读 localStorage 或系统默认 */
+  deviceId?: string | null;
   mimeType?: string;
   timeslice?: number;
+  /** 最短有效录音时长（毫秒），低于此值不上传 */
+  minDurationMs?: number;
 };
 
 export type UseAudioRecorderReturn = {
   isRecording: boolean;
   isSupported: boolean;
   error: string | null;
+  activeDeviceLabel: string | null;
   start: () => Promise<void>;
   stop: () => void;
-  /** 按住说话：按下开始 */
   handlePressStart: () => void;
-  /** 按住说话：松开结束 */
   handlePressEnd: () => void;
-  /** 点击开关：切换录音状态 */
   toggle: () => void;
 };
+
+const DEFAULT_MIN_DURATION_MS = 800;
 
 function pickMimeType(preferred?: string): string {
   const candidates = [
@@ -44,18 +50,45 @@ function pickMimeType(preferred?: string): string {
   return "audio/webm";
 }
 
+function buildAudioConstraints(deviceId?: string | null): MediaTrackConstraints {
+  const base: MediaTrackConstraints = {
+    echoCancellation: true,
+    noiseSuppression: false,
+    autoGainControl: true,
+    channelCount: 1,
+  };
+  const id = deviceId || getStoredMicDeviceId();
+  if (id) {
+    return { ...base, deviceId: { ideal: id } };
+  }
+  return base;
+}
+
 export function useAudioRecorder(
   options: UseAudioRecorderOptions = {},
 ): UseAudioRecorderReturn {
-  const { onChunk, onComplete, mimeType: preferredMime, timeslice = 250 } = options;
+  const {
+    onChunk,
+    onComplete,
+    deviceId,
+    mimeType: preferredMime,
+    timeslice = 250,
+    minDurationMs = DEFAULT_MIN_DURATION_MS,
+  } = options;
 
   const [isRecording, setIsRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeDeviceLabel, setActiveDeviceLabel] = useState<string | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const mimeRef = useRef("audio/webm");
+  const startedAtRef = useRef(0);
+  const startingRef = useRef(false);
+  const stopPendingRef = useRef(false);
+  const deviceIdRef = useRef(deviceId);
+  deviceIdRef.current = deviceId;
 
   const isSupported =
     typeof window !== "undefined" &&
@@ -67,24 +100,60 @@ export function useAudioRecorder(
     streamRef.current = null;
   }, []);
 
+  const stopInternal = useCallback(() => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state === "inactive") {
+      return;
+    }
+
+    const finalizeStop = () => {
+      try {
+        if (recorder.state === "recording") {
+          recorder.requestData();
+        }
+      } catch {
+        // 部分浏览器不支持 requestData
+      }
+      try {
+        recorder.stop();
+      } catch {
+        cleanupStream();
+        setIsRecording(false);
+      }
+    };
+
+    setTimeout(finalizeStop, 80);
+  }, [cleanupStream]);
+
+  const stop = useCallback(() => {
+    if (startingRef.current) {
+      stopPendingRef.current = true;
+      return;
+    }
+    stopInternal();
+  }, [stopInternal]);
+
   const start = useCallback(async () => {
     if (!isSupported) {
       setError("当前浏览器不支持录音");
       return;
     }
-    if (isRecording) return;
+    if (isRecording || startingRef.current) return;
+
+    startingRef.current = true;
+    stopPendingRef.current = false;
 
     try {
       setError(null);
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
+        audio: buildAudioConstraints(deviceIdRef.current),
       });
       streamRef.current = stream;
       chunksRef.current = [];
+
+      const track = stream.getAudioTracks()[0];
+      const settings = track?.getSettings();
+      setActiveDeviceLabel(track?.label || settings?.deviceId || "未知设备");
 
       const mime = pickMimeType(preferredMime);
       mimeRef.current = mime;
@@ -100,34 +169,63 @@ export function useAudioRecorder(
       };
 
       recorder.onstop = () => {
+        const durationMs = Date.now() - startedAtRef.current;
         const blob = new Blob(chunksRef.current, { type: mime });
-        onComplete?.(blob, mime);
         chunksRef.current = [];
+        mediaRecorderRef.current = null;
         cleanupStream();
         setIsRecording(false);
+
+        if (durationMs < minDurationMs || blob.size < 500) {
+          setError("录音太短，请按住至少 1 秒再松开");
+          return;
+        }
+        // 不在前端拦截「静音」—— Chrome/Cursor 音量标定不同，交给后端 ASR 判断
+        onComplete?.(blob, mime);
       };
 
       recorder.onerror = () => {
         setError("录音出错");
-        setIsRecording(false);
+        mediaRecorderRef.current = null;
         cleanupStream();
+        setIsRecording(false);
       };
 
       recorder.start(timeslice);
+      startedAtRef.current = Date.now();
       setIsRecording(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "无法访问麦克风");
+      const err = e instanceof Error ? e : new Error("无法访问麦克风");
+      if (err.name === "NotAllowedError") {
+        setError(
+          "Chrome 未允许麦克风。点击地址栏锁图标 → 麦克风 → 允许，然后按 F5 刷新本页",
+        );
+      } else if (err.name === "NotFoundError") {
+        setError("未找到麦克风设备，请检查系统声音设置或在下拉框中换一台设备");
+      } else {
+        setError(err.message || "无法访问麦克风");
+      }
       cleanupStream();
+      mediaRecorderRef.current = null;
+      setIsRecording(false);
+    } finally {
+      startingRef.current = false;
+      if (stopPendingRef.current) {
+        stopPendingRef.current = false;
+        stopInternal();
+      }
     }
-  }, [cleanupStream, isRecording, isSupported, onChunk, onComplete, preferredMime, timeslice]);
-
-  const stop = useCallback(() => {
-    const recorder = mediaRecorderRef.current;
-    if (recorder && recorder.state !== "inactive") {
-      recorder.stop();
-    }
-    mediaRecorderRef.current = null;
-  }, []);
+  }, [
+    cleanupStream,
+    isRecording,
+    isSupported,
+    minDurationMs,
+    onChunk,
+    onComplete,
+    preferredMime,
+    stopInternal,
+    timeslice,
+  ]);
 
   const handlePressStart = useCallback(() => {
     void start();
@@ -138,7 +236,7 @@ export function useAudioRecorder(
   }, [stop]);
 
   const toggle = useCallback(() => {
-    if (isRecording) stop();
+    if (isRecording || startingRef.current) stop();
     else void start();
   }, [isRecording, start, stop]);
 
@@ -146,6 +244,7 @@ export function useAudioRecorder(
     isRecording,
     isSupported,
     error,
+    activeDeviceLabel,
     start,
     stop,
     handlePressStart,
