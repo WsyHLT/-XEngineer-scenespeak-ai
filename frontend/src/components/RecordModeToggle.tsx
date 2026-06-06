@@ -6,10 +6,12 @@ type Props = {
   mode: RecordMode;
   onChange: (mode: RecordMode) => void;
   disabled?: boolean;
+  variant?: "light" | "dark";
 };
 
-export default function RecordModeToggle({ mode, onChange, disabled }: Props) {
+export default function RecordModeToggle({ mode, onChange, disabled, variant = "light" }: Props) {
   const isHold = mode === "hold";
+  const dark = variant === "dark";
 
   return (
     <button
@@ -22,7 +24,11 @@ export default function RecordModeToggle({ mode, onChange, disabled }: Props) {
           : "点击录音（点击切换为按住说话）"
       }
       aria-label={isHold ? "切换为点击录音" : "切换为按住说话"}
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-40"
+      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+        dark
+          ? "border-white/10 bg-white/[0.03] text-slate-400 hover:border-indigo-500/30 hover:text-indigo-300"
+          : "border-slate-200 bg-white text-slate-500 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600"
+      }`}
     >
       {isHold ? (
         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

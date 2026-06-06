@@ -12,6 +12,7 @@ from app.services.pronunciation_service import assess_pronunciation
 from app.services.session_store import session_store
 from app.services.stream_utils import turn_event_to_sse
 from app.services.stt_service import transcribe_audio
+from app.services.translation_service import translate_en_to_zh
 from app.services.tts_service import synthesize_speech
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,18 @@ class TranscribeResponse(BaseModel):
 
 class SynthesizeRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=2000, description="待合成英文文本")
+    voice_id: str | None = Field(
+        default=None,
+        description="火山 TTS voice_type 或 OpenAI voice 名，不传则用默认",
+    )
+
+
+class TranslateRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=4000, description="待翻译英文")
+
+
+class TranslateResponse(BaseModel):
+    translation_zh: str
 
 
 @router.post("/transcribe", response_model=TranscribeResponse)
@@ -113,12 +126,23 @@ async def assess_pronunciation_route(
 async def synthesize(body: SynthesizeRequest) -> Response:
     """路线 B · 说：文本 → 火山引擎 TTS（或 OpenAI 备选）→ 返回音频。"""
     try:
-        audio_bytes, content_type = await synthesize_speech(body.text)
+        audio_bytes, content_type = await synthesize_speech(body.text, voice_id=body.voice_id)
         return Response(content=audio_bytes, media_type=content_type)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("TTS failed")
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/translate", response_model=TranslateResponse)
+async def translate(body: TranslateRequest) -> TranslateResponse:
+    """AI 回复英文 → 简体中文翻译。"""
+    try:
+        zh = await translate_en_to_zh(body.text)
+        return TranslateResponse(translation_zh=zh)
+    except Exception as exc:
+        logger.exception("Translation failed")
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 

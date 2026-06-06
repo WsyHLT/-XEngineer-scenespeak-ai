@@ -34,7 +34,8 @@ def _get_client() -> httpx.AsyncClient:
     return _client
 
 
-def _build_payload(text: str) -> dict:
+def _build_payload(text: str, voice_type: str | None = None) -> dict:
+    vt = voice_type or settings.volcano_voice_type
     return {
         "app": {
             "appid": settings.volcano_app_id,
@@ -43,7 +44,7 @@ def _build_payload(text: str) -> dict:
         },
         "user": {"uid": "scenespeak"},
         "audio": {
-            "voice_type": settings.volcano_voice_type,
+            "voice_type": vt,
             "encoding": settings.volcano_audio_encoding,
             "speed_ratio": settings.volcano_speed_ratio,
             "volume_ratio": 1.0,
@@ -77,12 +78,12 @@ def _is_transient_error(exc: BaseException) -> bool:
     )
 
 
-async def _post_tts(text: str) -> bytes:
+async def _post_tts(text: str, voice_type: str | None = None) -> bytes:
     headers = {
         "Authorization": f"Bearer;{settings.volcano_access_token}",
         "Content-Type": "application/json",
     }
-    payload = _build_payload(text)
+    payload = _build_payload(text, voice_type)
 
     url = _VOLCANO_TTS_URL
     request_kwargs: dict = {}
@@ -109,7 +110,7 @@ async def _post_tts(text: str) -> bytes:
     return base64.b64decode(audio_b64)
 
 
-async def synthesize_volcano(text: str) -> bytes:
+async def synthesize_volcano(text: str, voice_type: str | None = None) -> bytes:
     trimmed = text.strip()
     if not trimmed:
         raise ValueError("合成文本不能为空")
@@ -121,7 +122,7 @@ async def synthesize_volcano(text: str) -> bytes:
     last_error: Exception | None = None
     for attempt in range(settings.tts_max_retries):
         try:
-            return await _post_tts(trimmed)
+            return await _post_tts(trimmed, voice_type)
         except Exception as exc:
             last_error = exc
             if attempt < settings.tts_max_retries - 1 and _is_transient_error(exc):

@@ -11,9 +11,11 @@ import {
 
 type Props = {
   onDeviceChange?: (deviceId: string | null) => void;
+  variant?: "light" | "dark";
 };
 
-export default function MicDeviceSelect({ onDeviceChange }: Props) {
+export default function MicDeviceSelect({ onDeviceChange, variant = "light" }: Props) {
+  const dark = variant === "dark";
   const [devices, setDevices] = useState<AudioInputDevice[]>([]);
   const [selected, setSelected] = useState<string>("");
   const [needsPermission, setNeedsPermission] = useState(false);
@@ -61,7 +63,9 @@ export default function MicDeviceSelect({ onDeviceChange }: Props) {
       <button
         type="button"
         onClick={() => void unlockLabels()}
-        className="text-[11px] text-indigo-600 underline hover:text-indigo-800"
+        className={`text-[11px] underline ${
+          dark ? "text-indigo-400 hover:text-indigo-300" : "text-indigo-600 hover:text-indigo-800"
+        }`}
       >
         点击授权麦克风
       </button>
@@ -70,12 +74,16 @@ export default function MicDeviceSelect({ onDeviceChange }: Props) {
 
   return (
     <div className="flex flex-col gap-1">
-      <label className="flex items-center gap-2 text-[11px] text-slate-500">
+      <label className={`flex items-center gap-2 text-[11px] ${dark ? "text-slate-400" : "text-slate-500"}`}>
         <span className="shrink-0">输入设备</span>
         <select
           value={selected}
           onChange={(e) => handleChange(e.target.value)}
-          className="min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-indigo-300"
+          className={`min-w-0 flex-1 rounded-md border px-2 py-1 text-xs outline-none ${
+            dark
+              ? "border-white/10 bg-black/40 text-slate-200 focus:border-indigo-500/40"
+              : "border-slate-200 bg-white text-slate-700 focus:border-indigo-300"
+          }`}
         >
           <option value="">系统默认</option>
           {devices.map((d) => (
@@ -89,7 +97,7 @@ export default function MicDeviceSelect({ onDeviceChange }: Props) {
         <button
           type="button"
           onClick={() => void unlockLabels()}
-          className="text-left text-[10px] text-amber-600 underline"
+          className={`text-left text-[10px] underline ${dark ? "text-amber-400" : "text-amber-600"}`}
         >
           设备名称未显示？点此授权后 F5 刷新
         </button>

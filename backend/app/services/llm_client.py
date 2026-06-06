@@ -98,6 +98,38 @@ class LLMClient:
             logger.exception("LLM stream failed")
             raise RuntimeError(_friendly_llm_error(exc)) from exc
 
+    async def complete_text(
+        self,
+        messages: list[ChatMessage],
+        *,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> str:
+        """非流式调用，返回纯文本。"""
+        model = model or settings.llm_model
+        temperature = temperature if temperature is not None else 0.3
+        max_tokens = max_tokens or 512
+
+        try:
+            kwargs: dict[str, Any] = {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "stream": False,
+            }
+            extra = _extra_llm_body()
+            if extra:
+                kwargs["extra_body"] = extra
+            response = await self._client.chat.completions.create(
+                **kwargs,  # type: ignore[arg-type]
+            )
+            return (response.choices[0].message.content or "").strip()
+        except Exception as exc:
+            logger.exception("LLM complete_text failed")
+            raise RuntimeError(_friendly_llm_error(exc)) from exc
+
     async def complete_json(
         self,
         messages: list[ChatMessage],

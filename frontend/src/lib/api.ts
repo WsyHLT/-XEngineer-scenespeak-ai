@@ -12,6 +12,46 @@ import type {
 /** 默认走同源代理（next.config rewrites）；仅调试时设 NEXT_PUBLIC_API_URL */
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
+function isJsonSyntaxError(err: unknown): boolean {
+  return (
+    err instanceof SyntaxError ||
+    (err instanceof Error && err.name === "SyntaxError")
+  );
+}
+
+function tryParseJson(raw: string): unknown | null {
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed === "[DONE]") return null;
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch (err) {
+    if (isJsonSyntaxError(err)) return null;
+    throw err;
+  }
+}
+
+function extractDetailFromErrorBody(text: string): string {
+  const parsed = tryParseJson(text);
+  if (parsed && typeof parsed === "object" && parsed !== null && "detail" in parsed) {
+    const detail = (parsed as { detail?: unknown }).detail;
+    if (typeof detail === "string" && detail) return detail;
+  }
+  return text;
+}
+
+async function parseJsonBody<T>(res: Response): Promise<T> {
+  const text = await res.text();
+  const parsed = tryParseJson(text);
+  if (parsed === null) {
+    throw new Error(
+      text.trim()
+        ? `服务器返回非 JSON 响应：${text.slice(0, 160)}`
+        : "服务器返回空响应",
+    );
+  }
+  return parsed as T;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -22,9 +62,34 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const detail = await res.text();
-    throw new Error(detail || `HTTP ${res.status}`);
+    throw new Error(extractDetailFromErrorBody(detail) || `HTTP ${res.status}`);
   }
-  return res.json() as Promise<T>;
+  return parseJsonBody<T>(res);
+}
+
+function* parseSsePayload(raw: string): Generator<TurnEventPayload> {
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed === "[DONE]") return;
+
+  const parsed = tryParseJson(trimmed);
+  if (parsed === null) return;
+
+  if (typeof parsed === "object" && parsed !== null && "error" in parsed) {
+    const message = (parsed as { error?: unknown }).error;
+    throw new Error(typeof message === "string" ? message : "流式响应出错");
+  }
+
+  if (typeof parsed === "object" && parsed !== null && "kind" in parsed) {
+    yield parsed as TurnEventPayload;
+  }
+}
+
+function processSseLine(line: string): TurnEventPayload[] {
+  const trimmed = line.replace(/\r$/, "").trim();
+  if (!trimmed.startsWith("data:")) return [];
+  const raw = trimmed.slice(5).trimStart();
+  if (raw === "[DONE]") return [];
+  return [...parseSsePayload(raw)];
 }
 
 export async function fetchScenes(): Promise<Scene[]> {
@@ -83,19 +148,18 @@ export async function* consumeSSE(
     buffer = lines.pop() ?? "";
 
     for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
-      const raw = line.slice(6).trim();
-      if (raw === "[DONE]") return;
-      try {
-        const parsed = JSON.parse(raw) as TurnEventPayload | { error: string };
-        if ("error" in parsed) throw new Error(parsed.error);
-        yield parsed as TurnEventPayload;
-      } catch (e) {
-        if (e instanceof SyntaxError) continue;
-        throw e;
+      for (const event of processSseLine(line)) {
+        yield event;
       }
+      if (line.replace(/\r$/, "").trim() === "data: [DONE]") return;
     }
   }
+
+  const tailEvents = processSseLine(buffer);
+  for (const event of tailEvents) {
+    yield event;
+  }
+  if (buffer.replace(/\r$/, "").trim() === "data: [DONE]") return;
 }
 
 export async function transcribeAudio(
@@ -109,21 +173,15 @@ export async function transcribeAudio(
     body: form,
   });
   if (!res.ok) {
-    let detail = await res.text();
-    try {
-      const j = JSON.parse(detail) as { detail?: string };
-      if (j.detail) detail = j.detail;
-    } catch {
-      // keep raw text
-    }
+    const detail = await res.text();
     if (res.status === 404) {
       throw new Error(
         "STT 接口不存在 (404)：请重启后端 uvicorn app.main:app --reload --port 8000",
       );
     }
-    throw new Error(detail || `STT failed HTTP ${res.status}`);
+    throw new Error(extractDetailFromErrorBody(detail) || `STT failed HTTP ${res.status}`);
   }
-  const data = (await res.json()) as TranscribeResponse;
+  const data = await parseJsonBody<TranscribeResponse>(res);
   const text = (data.text ?? "").trim();
   if (!text || text.toLowerCase() === "none") {
     throw new Error("未识别到语音内容，请靠近麦克风清晰说英文");
@@ -144,21 +202,16 @@ export async function assessPronunciation(
     body: form,
   });
   if (!res.ok) {
-    let detail = await res.text();
-    try {
-      const j = JSON.parse(detail) as { detail?: string };
-      if (j.detail) detail = j.detail;
-    } catch {
-      // keep
-    }
-    throw new Error(detail || `发音评测失败 HTTP ${res.status}`);
+    const detail = await res.text();
+    throw new Error(extractDetailFromErrorBody(detail) || `发音评测失败 HTTP ${res.status}`);
   }
-  return res.json() as Promise<PronunciationAssessment>;
+  return parseJsonBody<PronunciationAssessment>(res);
 }
 
 export async function synthesizeSpeech(
   text: string,
   timeoutMs = 8_000,
+  voiceId?: string,
 ): Promise<Blob> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -166,18 +219,15 @@ export async function synthesizeSpeech(
     const res = await fetch(`${API_BASE}/api/chat/synthesize`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: text.trim() }),
+      body: JSON.stringify({
+        text: text.trim(),
+        ...(voiceId ? { voice_id: voiceId } : {}),
+      }),
       signal: controller.signal,
     });
     if (!res.ok) {
-      let detail = await res.text();
-      try {
-        const j = JSON.parse(detail) as { detail?: string };
-        if (j.detail) detail = j.detail;
-      } catch {
-        // keep
-      }
-      throw new Error(detail || `TTS failed HTTP ${res.status}`);
+      const detail = await res.text();
+      throw new Error(extractDetailFromErrorBody(detail) || `TTS failed HTTP ${res.status}`);
     }
     return res.blob();
   } catch (err) {
@@ -188,6 +238,14 @@ export async function synthesizeSpeech(
   } finally {
     clearTimeout(timer);
   }
+}
+
+export async function translateText(text: string): Promise<string> {
+  const data = await request<{ translation_zh: string }>("/api/chat/translate", {
+    method: "POST",
+    body: JSON.stringify({ text: text.trim() }),
+  });
+  return data.translation_zh;
 }
 
 export async function initConversation(sessionId: string): Promise<TurnEventPayload[]> {

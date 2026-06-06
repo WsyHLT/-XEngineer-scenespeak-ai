@@ -1,23 +1,31 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
-import ChatBubble from "@/components/ChatBubble";
-import MicDeviceSelect from "@/components/MicDeviceSelect";
-import RecordButton from "@/components/RecordButton";
-import RecordModeToggle from "@/components/RecordModeToggle";
+import CoachAvatarPanel from "@/components/chat/CoachAvatarPanel";
+import CyberChatBubble from "@/components/chat/CyberChatBubble";
+import CyberControlBar from "@/components/chat/CyberControlBar";
+import InteractiveRadarChart from "@/components/chat/InteractiveRadarChart";
+import VoiceTimbreSelector from "@/components/chat/VoiceTimbreSelector";
 import SessionReportModal from "@/components/SessionReportModal";
 import TranscriptReviewPanel from "@/components/TranscriptReviewPanel";
 import { useAudioRecorder, type RecordMode } from "@/hooks/useAudioRecorder";
+import { useCoachSessionUI } from "@/hooks/useCoachSessionUI";
 import { useTextToSpeech } from "@/hooks/useTextToSpeech";
+import { useVoiceTimbre } from "@/hooks/useVoiceTimbre";
 import {
   assessPronunciation,
   buildDemoReport,
   initConversation,
   sendMessageStream,
   transcribeAudio,
+  translateText,
 } from "@/lib/api";
 import { AudioTransport } from "@/lib/audioTransport";
+import { MOCK_SKILLS } from "@/lib/cockpitMockData";
+import { getCoachPersona } from "@/lib/coachPersonas";
+import { MOCK_COACH_MESSAGES } from "@/lib/mockCoachMessages";
 import type { ChatItem } from "@/types/chat";
 import type { Correction, Scene, TurnEventPayload } from "@/types/api";
 
@@ -63,12 +71,46 @@ export default function AudioChat({
   const pendingTranscriptRef = useRef<string | null>(null);
   const pendingAudioRef = useRef<{ blob: Blob; filename: string } | null>(null);
   const tts = useTextToSpeech();
-  const speakRef = useRef(tts.speak);
-  speakRef.current = tts.speak;
+  const { currentVoice, setCurrentVoice, voices } = useVoiceTimbre();
+  const voiceIdRef = useRef(currentVoice.voiceId);
+  voiceIdRef.current = currentVoice.voiceId;
+
+  const playAssistantSpeech = useCallback(
+    (text: string, messageId: string) => {
+      tts.speak(text, { messageId, voiceId: voiceIdRef.current });
+    },
+    [tts],
+  );
+  const speakRef = useRef(playAssistantSpeech);
+  speakRef.current = playAssistantSpeech;
 
   const scrollToBottom = useCallback(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
+
+  const attachTranslation = useCallback(
+    (messageId: string, content: string) => {
+      void translateText(content)
+        .then((translationZh) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === messageId ? { ...m, translationZh } : m,
+            ),
+          );
+          scrollToBottom();
+        })
+        .catch(() => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === messageId
+                ? { ...m, translationZh: "（翻译加载失败，请确认后端已启动）" }
+                : m,
+            ),
+          );
+        });
+    },
+    [scrollToBottom],
+  );
 
   /** 处理 SSE 流式事件 — 打字机效果 + 纠错附加 */
   const applyStreamEvents = useCallback(
@@ -77,19 +119,21 @@ export default function AudioChat({
 
       for await (const event of generator) {
         switch (event.kind) {
-          case "user_message":
-            if (event.message) {
+          case "user_message": {
+            const msg = event.message;
+            if (msg) {
               setMessages((prev) => [
                 ...prev,
                 {
                   id: event.message_id,
                   role: "user",
-                  content: event.message.content,
+                  content: msg.content,
                 },
               ]);
               scrollToBottom();
             }
             break;
+          }
 
           case "assistant_delta":
             if (!currentAssistantId) {
@@ -104,6 +148,7 @@ export default function AudioChat({
 
           case "assistant_done":
             if (event.message) {
+              const content = event.message.content;
               setMessages((prev) => {
                 const exists = prev.some((m) => m.id === event.message_id);
                 if (exists) return prev;
@@ -112,11 +157,12 @@ export default function AudioChat({
                   {
                     id: event.message_id,
                     role: "assistant",
-                    content: event.message!.content,
+                    content,
                   },
                 ];
               });
-              speakRef.current(event.message.content);
+              speakRef.current(content, event.message_id);
+              attachTranslation(event.message_id, content);
             }
             setStreamingId(null);
             setStreamingText("");
@@ -150,7 +196,7 @@ export default function AudioChat({
         }
       }
     },
-    [scrollToBottom],
+    [scrollToBottom, attachTranslation],
   );
 
   const sendText = useCallback(
@@ -361,27 +407,27 @@ export default function AudioChat({
         const events = await initConversation(sessionId);
         if (cancelled) return;
 
-        let openingId: string | null = null;
         let openingText = "";
 
         for (const ev of events) {
           if (ev.kind === "assistant_delta") {
-            openingId = ev.message_id;
             openingText += ev.delta ?? "";
             setStreamingId(ev.message_id);
             setStreamingText(openingText);
           }
           if (ev.kind === "assistant_done" && ev.message) {
+            const content = ev.message.content;
             setMessages([
               {
                 id: ev.message_id,
                 role: "assistant",
-                content: ev.message.content,
+                content,
               },
             ]);
             setStreamingId(null);
             setStreamingText("");
-            speakRef.current(ev.message.content);
+            speakRef.current(content, ev.message_id);
+            attachTranslation(ev.message_id, content);
           }
         }
       } catch {
@@ -397,7 +443,7 @@ export default function AudioChat({
       cancelled = true;
       transportRef.current?.disconnect();
     };
-  }, [initTransport, sessionId]);
+  }, [attachTranslation, initTransport, sessionId]);
 
   useEffect(() => {
     scrollToBottom();
@@ -422,9 +468,31 @@ export default function AudioChat({
     setTextInput("");
   };
 
+  const searchParams = useSearchParams();
+  const isInsightDemo = searchParams.get("demo") === "insights";
+
   const isListening = recorder.isRecording;
   const isReviewing = transcriptReview !== null;
   const isBusy = isProcessing || isInitializing || isTranscribing;
+
+  const coachPersona = useMemo(() => getCoachPersona(scene), [scene]);
+
+  const { aiStatus, isUserSpeaking, hints } = useCoachSessionUI({
+    isUserSpeaking: isListening,
+    isAiSpeaking: tts.isSpeaking,
+    isAiThinking: isProcessing || !!streamingId || isTranscribing,
+    hints: coachPersona.hints,
+  });
+
+  const avatarStatusHint = isReviewing
+    ? "请核对识别文字后发送"
+    : isTranscribing
+      ? "识别中，请稍候…"
+      : isUserSpeaking
+        ? "正在采集你的语音…"
+        : undefined;
+
+  const visibleMessages = isInsightDemo ? MOCK_COACH_MESSAGES : messages;
 
   const statusLabel = isReviewing
     ? "请确认识别文字"
@@ -446,18 +514,58 @@ export default function AudioChat({
     statusLabel ||
     (voiceHint !== defaultVoiceHint ? voiceHint : null);
 
-  const inputPlaceholder =
-    recordMode === "hold" ? "输入英文，或按住左侧麦克风说话…" : "输入英文，或点击左侧麦克风录音…";
+  const handleHintClick = useCallback((hint: string) => {
+    setTextInput(hint);
+  }, []);
+
+  const assistantAudio = useMemo(
+    () => ({
+      sessionMessageId: tts.sessionMessageId,
+      isAudioPlaying: tts.isAudioPlaying,
+      isPaused: tts.isPaused,
+      playbackState: tts.playbackState,
+      audioProgress: tts.audioProgress,
+      audioCurrentTime: tts.audioCurrentTime,
+      audioDuration: tts.audioDuration,
+      onSeek: tts.seekTo,
+      onPause: tts.pause,
+      onResume: tts.resume,
+      onStop: tts.stopPlayback,
+      onReplay: (messageId: string, text: string) => {
+        playAssistantSpeech(text, messageId);
+      },
+    }),
+    [
+      tts.sessionMessageId,
+      tts.isAudioPlaying,
+      tts.isPaused,
+      tts.playbackState,
+      tts.audioProgress,
+      tts.audioCurrentTime,
+      tts.audioDuration,
+      tts.seekTo,
+      tts.pause,
+      tts.resume,
+      tts.stopPlayback,
+      playAssistantSpeech,
+    ],
+  );
 
   return (
     <>
-      <div className="flex h-screen flex-col bg-gradient-to-b from-slate-50 to-slate-100">
+      <div className="relative flex h-screen flex-col overflow-hidden bg-[#0B0F19] text-slate-100">
+        {/* 背景光晕 */}
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <div className="absolute -left-32 top-0 h-96 w-96 rounded-full bg-indigo-600/10 blur-3xl" />
+          <div className="absolute -right-32 bottom-0 h-80 w-80 rounded-full bg-violet-600/10 blur-3xl" />
+        </div>
+
         {/* 顶栏 */}
-        <header className="flex shrink-0 items-center justify-between border-b border-slate-200/80 bg-white/80 px-4 py-3 backdrop-blur-md">
+        <header className="relative z-20 flex shrink-0 items-center justify-between border-b border-white/5 bg-[#0B0F19]/80 px-4 py-3 backdrop-blur-md">
           <button
             type="button"
             onClick={onExit}
-            className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+            className="rounded-xl border border-white/5 p-2 text-slate-400 transition-colors hover:border-white/10 hover:bg-white/5 hover:text-white"
             aria-label="返回"
           >
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -465,21 +573,26 @@ export default function AudioChat({
             </svg>
           </button>
           <div className="text-center">
-            <h1 className="font-semibold text-slate-900">
+            <h1 className="font-semibold text-white">
               {scene.icon} {scene.name_zh}
             </h1>
-            <p className="text-xs text-slate-400">{scene.name}</p>
+            <p className="text-xs text-slate-500">{scene.name}</p>
           </div>
           <div className="flex items-center gap-2">
+            <VoiceTimbreSelector
+              currentVoice={currentVoice}
+              voices={voices}
+              onChange={setCurrentVoice}
+            />
             {tts.isSupported && (
               <button
                 type="button"
                 onClick={tts.toggleEnabled}
                 title={tts.enabled ? "关闭 AI 朗读" : "开启 AI 朗读"}
-                className={`rounded-lg p-2 transition-colors ${
+                className={`rounded-xl border p-2 transition-colors ${
                   tts.enabled
-                    ? "bg-indigo-50 text-indigo-600 hover:bg-indigo-100"
-                    : "text-slate-400 hover:bg-slate-100"
+                    ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20"
+                    : "border-white/5 text-slate-500 hover:bg-white/5 hover:text-slate-300"
                 }`}
                 aria-label={tts.enabled ? "关闭 AI 朗读" : "开启 AI 朗读"}
               >
@@ -497,125 +610,108 @@ export default function AudioChat({
             <button
               type="button"
               onClick={handleEndSession}
-              className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-200"
+              className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm font-medium text-slate-300 transition-colors hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-300"
             >
               结束
             </button>
           </div>
         </header>
 
-        {/* 对话区 */}
-        <main className="flex-1 overflow-y-auto px-4 py-6">
-          <div className="mx-auto max-w-2xl space-y-5">
-            {isInitializing && messages.length === 0 && !streamingText && (
-              <p className="text-center text-sm text-slate-400">AI 教练正在加入…</p>
-            )}
+        {/* 主内容：左 2/5 虚拟人 + 右 3/5 对话流 */}
+        <div className="relative z-10 flex min-h-0 flex-1 flex-col lg:flex-row">
+          {/* 左侧虚拟人舱 */}
+          <aside className="flex w-full shrink-0 flex-col gap-4 p-4 lg:w-2/5 lg:border-r lg:border-white/5 lg:p-6">
+            <CoachAvatarPanel
+              persona={coachPersona}
+              aiStatus={aiStatus}
+              sceneIcon={scene.icon}
+              statusHint={avatarStatusHint}
+            />
+            <InteractiveRadarChart skills={MOCK_SKILLS} compact />
+            <VoiceTimbreSelector
+              variant="panel"
+              currentVoice={currentVoice}
+              voices={voices}
+              onChange={setCurrentVoice}
+            />
+          </aside>
 
-            {messages.map((msg) => (
-              <ChatBubble key={msg.id} item={msg} />
-            ))}
+          {/* 右侧对话流 */}
+          <main className="flex min-h-0 flex-1 flex-col overflow-hidden pb-44 lg:pb-48">
+            <div className="flex-1 overflow-y-auto px-4 py-4 lg:px-6 lg:py-6">
+              <div className="mx-auto max-w-2xl space-y-5">
+                {isInsightDemo && (
+                  <p className="mb-4 text-center text-[10px] uppercase tracking-widest text-indigo-400/70">
+                    Insight Demo — add ?demo=insights to URL
+                  </p>
+                )}
 
-            {streamingId && (
-              <ChatBubble
-                item={{ id: streamingId, role: "assistant", content: "" }}
-                streamingText={streamingText}
-                isStreaming
-              />
-            )}
+                {isInitializing && visibleMessages.length === 0 && !streamingText && (
+                  <p className="text-center text-sm text-slate-500">AI 教练正在接入通话舱…</p>
+                )}
 
-            <div ref={chatEndRef} />
-          </div>
-        </main>
+                {visibleMessages.map((msg) => (
+                  <CyberChatBubble
+                    key={msg.id}
+                    item={msg}
+                    audio={msg.role === "assistant" ? assistantAudio : undefined}
+                  />
+                ))}
 
-        {/* 底部输入栏 */}
-        <footer className="shrink-0 border-t border-slate-200/80 bg-white/90 px-3 py-2 backdrop-blur-md">
-          <div className="mx-auto max-w-2xl">
-            {transcriptReview !== null && (
-              <div className="mb-2">
-                <TranscriptReviewPanel
-                  text={transcriptReview}
-                  asrEngine={asrEngine}
-                  onChange={setTranscriptReview}
-                  onConfirm={() => void confirmTranscriptReview()}
-                  onCancel={cancelTranscriptReview}
-                  disabled={isProcessing}
-                />
+                {streamingId && (
+                  <CyberChatBubble
+                    item={{ id: streamingId, role: "assistant", content: "" }}
+                    streamingText={streamingText}
+                    isStreaming
+                  />
+                )}
+
+                {transcriptReview !== null && (
+                  <TranscriptReviewPanel
+                    variant="dark"
+                    text={transcriptReview}
+                    asrEngine={asrEngine}
+                    onChange={setTranscriptReview}
+                    onConfirm={() => void confirmTranscriptReview()}
+                    onCancel={cancelTranscriptReview}
+                    disabled={isProcessing}
+                  />
+                )}
+
+                <div ref={chatEndRef} />
               </div>
-            )}
+            </div>
+          </main>
+        </div>
 
-            {showMicSettings && (
-              <div className="mb-2 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1.5">
-                <MicDeviceSelect onDeviceChange={setMicDeviceId} />
-              </div>
-            )}
+        {/* 底部沉浸式控制栏 */}
+        <CyberControlBar
+          hints={hints}
+          textInput={textInput}
+          onTextChange={setTextInput}
+          onSubmit={handleTextSubmit}
+          onHintClick={handleHintClick}
+          recordMode={recordMode}
+          onRecordModeChange={setRecordMode}
+          isUserSpeaking={isUserSpeaking}
+          isBusy={isBusy}
+          isReviewing={isReviewing}
+          recorderSupported={recorder.isSupported}
+          statusLabel={statusLabel}
+          footerStatus={footerStatus}
+          showMicSettings={showMicSettings}
+          onToggleMicSettings={() => setShowMicSettings((v) => !v)}
+          onMicDeviceChange={setMicDeviceId}
+          onPressStart={handleRecordStart}
+          onPressEnd={handleRecordEnd}
+          onToggle={handleRecordToggle}
+        />
 
-            <form onSubmit={handleTextSubmit} className="flex items-center gap-1.5">
-              <RecordButton
-                compact
-                mode={recordMode}
-                isRecording={isListening}
-                isProcessing={isBusy && !isListening}
-                statusLabel={statusLabel}
-                disabled={isInitializing || isReviewing || !recorder.isSupported}
-                onPressStart={handleRecordStart}
-                onPressEnd={handleRecordEnd}
-                onToggle={handleRecordToggle}
-              />
-              <RecordModeToggle
-                mode={recordMode}
-                onChange={setRecordMode}
-                disabled={isBusy || isListening}
-              />
-              <input
-                type="text"
-                value={textInput}
-                onChange={(e) => setTextInput(e.target.value)}
-                placeholder={inputPlaceholder}
-                disabled={isBusy}
-                className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 disabled:opacity-50"
-              />
-              <button
-                type="button"
-                onClick={() => setShowMicSettings((v) => !v)}
-                title="麦克风设置"
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors ${
-                  showMicSettings
-                    ? "border-indigo-200 bg-indigo-50 text-indigo-600"
-                    : "border-slate-200 bg-white text-slate-400 hover:border-slate-300 hover:text-slate-600"
-                }`}
-              >
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 14a3 3 0 003-3V5a3 3 0 10-6 0v6a3 3 0 003 3z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a1 1 0 10-2 0 5 5 0 01-10 0 1 1 0 10-2 0 7 7 0 006 6.92V19H9a1 1 0 100 2h6a1 1 0 100-2h-2v-1.08A7 7 0 0019 11z" />
-                </svg>
-              </button>
-              <button
-                type="submit"
-                disabled={isBusy || !textInput.trim()}
-                className="shrink-0 rounded-xl bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
-              >
-                发送
-              </button>
-            </form>
-
-            {footerStatus && (
-              <p
-                className={`mt-1 truncate text-center text-[11px] ${
-                  recorder.error ? "text-red-500" : "text-slate-500"
-                }`}
-                title={footerStatus}
-              >
-                {footerStatus}
-              </p>
-            )}
-
-            {!recorder.isSupported && (
-              <p className="mt-1 text-center text-[11px] text-amber-600">
-                麦克风不可用，请用文字输入
-              </p>
-            )}
-          </div>
-        </footer>
+        {!recorder.isSupported && (
+          <p className="pointer-events-none fixed bottom-2 left-0 right-0 z-40 text-center text-[10px] text-amber-400/80">
+            麦克风不可用，请用文字输入
+          </p>
+        )}
       </div>
 
       {report && (

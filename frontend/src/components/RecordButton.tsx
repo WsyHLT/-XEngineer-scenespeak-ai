@@ -9,6 +9,7 @@ type Props = {
   statusLabel?: string;
   disabled?: boolean;
   compact?: boolean;
+  variant?: "default" | "cyber";
   onPressStart: () => void;
   onPressEnd: () => void;
   onToggle: () => void;
@@ -21,6 +22,7 @@ export default function RecordButton({
   statusLabel,
   disabled,
   compact = false,
+  variant = "default",
   onPressStart,
   onPressEnd,
   onToggle,
@@ -57,9 +59,18 @@ export default function RecordButton({
           ? "按住说话"
           : "录音");
 
-  const sizeClass = compact ? "h-11 w-11 shrink-0" : "h-16 w-16";
+  const sizeClass = compact ? (variant === "cyber" ? "h-12 w-12 shrink-0" : "h-11 w-11 shrink-0") : "h-16 w-16";
   const iconClass = compact ? "h-5 w-5" : "h-7 w-7";
   const spinClass = compact ? "h-5 w-5 border-2" : "h-7 w-7 border-[3px]";
+
+  const cyberGlow =
+    variant === "cyber" && !isRecording && !isProcessing
+      ? "shadow-[0_0_24px_rgba(99,102,241,0.55),0_0_48px_rgba(139,92,246,0.25)]"
+      : "";
+  const cyberRecording =
+    variant === "cyber" && isRecording
+      ? "shadow-[0_0_28px_rgba(168,85,247,0.6),0_0_56px_rgba(59,130,246,0.35)]"
+      : "";
 
   const button = (
     <button
@@ -67,10 +78,14 @@ export default function RecordButton({
       disabled={disabled || isProcessing}
       aria-label={isRecording ? "停止录音" : "开始录音"}
       title={hint}
-      className={`relative flex ${sizeClass} touch-none select-none items-center justify-center rounded-full shadow-md transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-50 ${
+      className={`relative flex ${sizeClass} touch-none select-none items-center justify-center rounded-full transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-50 ${
         isRecording
-          ? "scale-105 bg-red-500 shadow-red-300/40 animate-pulse"
-          : "bg-gradient-to-br from-indigo-500 to-violet-600 shadow-indigo-300/40 hover:scale-105"
+          ? variant === "cyber"
+            ? `scale-110 bg-gradient-to-br from-violet-500 to-blue-600 ${cyberRecording} animate-pulse`
+            : "scale-105 bg-red-500 shadow-red-300/40 animate-pulse"
+          : variant === "cyber"
+            ? `bg-gradient-to-br from-indigo-500 via-violet-600 to-blue-600 hover:scale-105 ${cyberGlow}`
+            : "bg-gradient-to-br from-indigo-500 to-violet-600 shadow-indigo-300/40 hover:scale-105 shadow-md"
       }`}
       {...handlers}
     >
@@ -89,7 +104,7 @@ export default function RecordButton({
         </svg>
       )}
 
-      {isRecording && !compact && (
+      {isRecording && !compact && variant !== "cyber" && (
         <span className="absolute -inset-1.5 rounded-full border-2 border-red-400/40 animate-ping" />
       )}
     </button>

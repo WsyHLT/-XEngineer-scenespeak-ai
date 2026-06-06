@@ -7,7 +7,7 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
-async def synthesize_speech(text: str) -> tuple[bytes, str]:
+async def synthesize_speech(text: str, voice_id: str | None = None) -> tuple[bytes, str]:
     """
     返回 (audio_bytes, content_type)。
     """
@@ -27,7 +27,7 @@ async def synthesize_speech(text: str) -> tuple[bytes, str]:
     if provider == "volcano":
         from app.services.tts_volcano import synthesize_volcano
 
-        audio = await synthesize_volcano(trimmed)
+        audio = await synthesize_volcano(trimmed, voice_type=voice_id)
         encoding = settings.volcano_audio_encoding
         mime = "audio/mpeg" if encoding == "mp3" else f"audio/{encoding}"
         return audio, mime
@@ -37,13 +37,16 @@ async def synthesize_speech(text: str) -> tuple[bytes, str]:
 
         from openai import AsyncOpenAI
 
+        openai_voice = voice_id if voice_id and voice_id in (
+            "alloy", "echo", "fable", "onyx", "nova", "shimmer",
+        ) else settings.tts_voice
         client = AsyncOpenAI(
             api_key=settings.openai_api_key,
             base_url=settings.openai_base_url,
         )
         resp = await client.audio.speech.create(
             model=settings.tts_model,
-            voice=settings.tts_voice,
+            voice=openai_voice,
             input=text.strip(),
         )
         return resp.content, "audio/mpeg"

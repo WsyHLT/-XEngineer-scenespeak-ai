@@ -23,4 +23,75 @@
   .border-3 {
     border-width: 3px;
   }
+
+  .glass-panel {
+    @apply border border-white/10 bg-white/[0.04] backdrop-blur-xl;
+  }
+
+  .audio-progress-range {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 6px;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.1);
+    outline: none;
+  }
+
+  .audio-progress-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 9999px;
+    border: 2px solid white;
+    background: #818cf8;
+    box-shadow: 0 0 10px rgba(99, 102, 241, 0.6);
+    cursor: grab;
+  }
+
+  .audio-progress-range::-webkit-slider-thumb:active {
+    cursor: grabbing;
+    transform: scale(1.1);
+  }
+
+  .audio-progress-range::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 9999px;
+    border: 2px solid white;
+    background: #818cf8;
+    box-shadow: 0 0 10px rgba(99, 102, 241, 0.6);
+    cursor: grab;
+  }
+
+  .audio-progress-range::-moz-range-track {
+    height: 6px;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .gradient-border-mask {
+    position: relative;
+    background: linear-gradient(#0b0f19, #0b0f19) padding-box,
+      linear-gradient(120deg, #3b82f6, #8b5cf6, #ec4899, #3b82f6) border-box;
+    border: 1px solid transparent;
+    background-size: 100% 100%, 200% 100%;
+  }
+
+  .gradient-border-mask:hover {
+    animation: border-flow-keyframes 4s linear infinite;
+  }
+
+  .text-glow {
+    text-shadow: 0 0 24px rgba(129, 140, 248, 0.55);
+  }
+
+  @keyframes border-flow-keyframes {
+    0% {
+      background-position: 0% 50%, 0% 50%;
+    }
+    100% {
+      background-position: 0% 50%, 200% 50%;
+    }
+  }
 }
