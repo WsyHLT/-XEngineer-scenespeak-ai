@@ -10,7 +10,7 @@
   <title>AI 英语口语陪练</title>
 
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <link rel="stylesheet" href="/css/style.css?v=layout-fixed-1">
+  <link rel="stylesheet" href="/css/style.css?v=labeled-controls-1">
 </head>
 
 <body>
@@ -49,8 +49,8 @@
             <div class="card-icon grammar"><i class="fas fa-spell-check"></i></div>
             <div class="card-content">
               <h4>语法评分</h4>
-              <div class="score" id="grammar-score">85%</div>
-              <div class="progress-bar"><div class="progress-fill" style="width: 85%"></div></div>
+              <div class="score" id="grammar-score">--</div>
+              <div class="progress-bar"><div class="progress-fill" style="width: 0%"></div></div>
             </div>
           </div>
 
@@ -58,8 +58,8 @@
             <div class="card-icon pronunciation"><i class="fas fa-microphone-alt"></i></div>
             <div class="card-content">
               <h4>发音评分</h4>
-              <div class="score" id="pronunciation-score">78%</div>
-              <div class="progress-bar"><div class="progress-fill" style="width: 78%"></div></div>
+              <div class="score" id="pronunciation-score">--</div>
+              <div class="progress-bar"><div class="progress-fill" style="width: 0%"></div></div>
             </div>
           </div>
 
@@ -67,8 +67,8 @@
             <div class="card-icon vocabulary"><i class="fas fa-book-open"></i></div>
             <div class="card-content">
               <h4>词汇表达</h4>
-              <div class="score" id="vocabulary-score">92%</div>
-              <div class="progress-bar"><div class="progress-fill" style="width: 92%"></div></div>
+              <div class="score" id="vocabulary-score">--</div>
+              <div class="progress-bar"><div class="progress-fill" style="width: 0%"></div></div>
             </div>
           </div>
 
@@ -76,8 +76,8 @@
             <div class="card-icon fluency"><i class="fas fa-comments"></i></div>
             <div class="card-content">
               <h4>流利度</h4>
-              <div class="score" id="fluency-score">81%</div>
-              <div class="progress-bar"><div class="progress-fill" style="width: 81%"></div></div>
+              <div class="score" id="fluency-score">--</div>
+              <div class="progress-bar"><div class="progress-fill" style="width: 0%"></div></div>
             </div>
           </div>
         </div>
@@ -91,9 +91,9 @@
         </div>
 
         <div class="learning-stats">
-          <div class="stat-item"><i class="fas fa-fire"></i><span>连续练习 7 天</span></div>
-          <div class="stat-item"><i class="fas fa-clock"></i><span>今日 45 分钟</span></div>
-          <div class="stat-item"><i class="fas fa-star"></i><span>等级：中级</span></div>
+          <div class="stat-item"><i class="fas fa-fire"></i><span id="streak-days">连续练习 0 天</span></div>
+          <div class="stat-item"><i class="fas fa-clock"></i><span id="today-minutes">今日 0 分钟</span></div>
+          <div class="stat-item"><i class="fas fa-star"></i><span id="level-label">等级：中级</span></div>
         </div>
       </div>
     </div>
@@ -220,31 +220,30 @@
     <div class="chat-container">
       <div class="feedback-panel" id="feedback-panel">
         <div class="feedback-header">
-          <h4><i class="fas fa-lightbulb"></i> AI 反馈</h4>
+          <h4 id="training-panel-title"><i class="fas fa-lightbulb"></i> 当前训练提示</h4>
           <button id="toggle-feedback" class="btn-icon">
             <i class="fas fa-chevron-down"></i>
           </button>
         </div>
 
         <div class="feedback-content">
-          <div class="feedback-item grammar-feedback">
-            <h5><i class="fas fa-spell-check"></i> 语法</h5>
-            <div id="grammar-feedback">开始说英语后，这里会显示语法反馈。</div>
-          </div>
-
           <div class="feedback-item pronunciation-feedback">
             <h5><i class="fas fa-microphone-alt"></i> 发音</h5>
             <div id="pronunciation-feedback">开始录音后，这里会显示发音评分。</div>
-          </div>
-
-          <div class="feedback-item vocabulary-feedback">
-            <h5><i class="fas fa-book-open"></i> 表达</h5>
-            <div id="vocabulary-feedback">更自然的表达建议会显示在这里。</div>
           </div>
         </div>
       </div>
 
       <div class="chat-workspace-card">
+        <div class="conversation-context" id="conversation-context">
+          <div class="context-main">
+            <span class="context-dot"></span>
+            <span>当前练习</span>
+            <strong id="context-mode-label">自由对话</strong>
+          </div>
+          <span class="context-detail" id="context-scenario-label">当前未进入具体场景</span>
+        </div>
+
         <div class="chat-history" id="chat-history">
           <div class="welcome-message">
             <div class="message tutor-message">
@@ -284,24 +283,30 @@
         <div class="voice-controls">
           <button id="mic-btn" class="mic-button" aria-label="开始口语练习">
             <i class="fas fa-microphone"></i>
+            <span>开始录音</span>
             <div class="pulse-ring"></div>
           </button>
 
           <div class="control-buttons">
             <button id="settings-btn" class="control-btn" aria-label="打开设置">
               <i class="fas fa-cog"></i>
+              <span>设置</span>
             </button>
             <button id="mute-btn" class="control-btn" aria-label="切换静音">
               <i class="fas fa-volume-up"></i>
+              <span>静音</span>
             </button>
             <button id="stop-btn" class="control-btn" aria-label="停止朗读">
               <i class="fas fa-stop"></i>
+              <span>停止</span>
             </button>
             <button id="feedback-btn" class="control-btn" aria-label="显示或隐藏反馈">
               <i class="fas fa-lightbulb"></i>
+              <span>提示</span>
             </button>
             <button id="summary-btn" class="control-btn" aria-label="结束练习并查看总结">
               <i class="fas fa-clipboard-check"></i>
+              <span>课后报告</span>
             </button>
           </div>
         </div>
@@ -395,7 +400,6 @@
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/js/script.js?v=layout-fixed-1"></script>
-  <script src="/js/microphone-fix.js?v=layout-fixed-1"></script>
+  <script src="/js/script.js?v=labeled-controls-1"></script>
 </body>
 </html>

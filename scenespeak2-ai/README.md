@@ -1,97 +1,473 @@
-# SceneSpeak2 AI
+# English Tutor AI Application 
+VoiceGPT Advanced 🎤🤖
 
-SceneSpeak2 AI 是一个面向英语口语练习的 AI 场景陪练应用。项目围绕“AI 英语口语陪练”题目开发，支持自由对话、语法专项、发音训练、词汇表达、流利度训练和真实场景角色扮演。
+An advanced voice-enabled AI chatbot with modern UI, multiple AI models, conversation history, and comprehensive features for an enhanced user experience.
 
-## 项目目录
+![VoiceGPT Advanced](https://img.shields.io/badge/VoiceGPT-Advanced-blue)
+![Node.js](https://img.shields.io/badge/Node.js-16%2B-green)
+![License](https://img.shields.io/badge/License-MIT-yellow)
 
-```text
-scenespeak2-ai/
-  index.js              # Express + Socket.IO 后端入口
-  views/index.html      # 前端页面
-  public/js/script.js   # 核心交互、语音识别、对话逻辑
-  public/css/style.css  # 页面样式
-  package.json          # Node.js 依赖与启动脚本
-  env.example           # 环境变量示例
-```
+## ✨ Features
 
-## 核心功能
+## 📸 Screenshots
 
-- 场景陪练：面试、点餐、会议、旅行、购物、社交等真实情境。
-- 实时口语输入：浏览器麦克风录音与语音识别。
-- 识别文本确认：用户可手动修正识别结果后再发送，降低语音识别误差影响。
-- DeepSeek 对话：后端接入 DeepSeek API，按不同模式生成 AI 导师回复。
-- 语法专项：输出纠错、解释和练习建议。
-- 发音反馈：提供发音评分展示与后续音频级评测接口。
-- 课后总结：统计对话轮次、词数、分数和下一步建议。
+### 1. Home Page
+![Home Page](public/images/home-page.png)
+*The main dashboard showing your learning progress overview and available practice modes*
 
-## 技术栈与依赖
+### 2. Your Learning Progress
+![Learning Progress](public/images/learning-progress.png)
+*Detailed breakdown of your English skills with progress tracking and recent activity*
 
-- Node.js
-- Express
-- Socket.IO
-- Axios
-- Helmet
-- express-rate-limit
-- Browser Web Speech API
-- Browser Speech Synthesis API
-- DeepSeek Chat API
+### 3. Choose Your Practice Mode
+![Practice Mode](public/images/practice-mode.png)
+*Interactive selection of different learning modes tailored to your needs*
 
-第三方库用于 Web 服务、实时通信、安全头、接口调用和浏览器语音能力。原创功能主要集中在口语陪练流程、场景模式、语法专项 prompt、识别文本确认、学习反馈和课后总结。
+### 4. AI Feedback
+![AI Feedback](public/images/ai-feedback.png)
+*Comprehensive analysis of your speaking performance with detailed recommendations*
 
-## 启动方式
+### 5. AI Tutor Response
+![AI Tutor Response](public/images/ai-tutor-response.png)
+*Real-time conversation interface with grammar corrections and interactive feedback*
 
-进入项目目录：
+### 6. AI Tutor Mode Selection: (Learning Settings)
+![AI Tutor Mode Selection](public/images/ai-tutor-mode-selection.png)
+*Choose from Conversation Partner, Grammar Tutor, Pronunciation Coach, Vocabulary Builder, or Fluency Coach based on your learning goals*
+
+### 6.1 Difficulty Level Adjustment: (Learning Settings)
+<!-- ![Difficulty Level Adjustment](public/images/difficulty-level-adjustment.png) -->
+*Seamlessly switch between Beginner, Intermediate, Advanced, and Native Level to match your current proficiency*        
+### 6.2 Feedback Style Options: (Learning Settings)
+<!-- ![Feedback Style Options](public/images/feedback-style-options.png) -->
+*Customize how you receive corrections - from gentle encouragement to detailed analysis, immediate corrections, or end-of-session summaries*
+### 6.3 Recognition Language: (Learning Settings)
+<!-- ![Recognition Language](public/images/recognition-language.png) -->
+*Select your preferred English variant (US, UK, Australian, Canadian) for accurate accent recognition and feedback*
+### 6.4 Voice Selection: (Learning Settings)
+<!-- ![Voice Selection](public/images/voice-selection.png) -->
+*Choose from over 100+ AI tutor voices including native speakers, multilingual options, and specialized pronunciation coaches*
+### 6.5 Session Duration Control: (Learning Settings)
+<!-- ![Session Duration Control](public/images/session-duration-control.png) -->
+*Set practice sessions from quick 5-minute exercises to unlimited learning time based on your schedule*        
+### 6.6 Progress Tracking: (Learning Settings)
+<!-- ![Progress Tracking](public/images/progress-tracking.png) -->
+*Access detailed analytics and clear session history for continuous improvement monitoring*
+### 6.7 Real-time Status: (Learning Settings)
+<!-- ![Real-time Status](public/images/real-time-status.png) -->
+*Live microphone activity indicator showing "AI is analyzing your speech..." with session timer display* 
+### 6.8 Microphone Setting: (Learning Settings)
+<!-- ![Microphone Setting](public/images/microphone-setting.png) -->
+*Microphone setting interface with options to select microphone and adjust volume*                    
+
+This settings interface allows learners to create a fully personalized English learning environment that adapts to their specific needs, learning style, and proficiency level.
+
+
+
+
+### 🎯 Core Features
+- **Voice Recognition**: Browser-native speech-to-text using Web Speech API
+- **Text-to-Speech**: Natural voice responses with customizable voices
+- **Real-time Communication**: WebSocket-based instant messaging
+- **Multiple AI Models**: Support for GPT-3.5, GPT-4, Claude, and more
+- **Conversation History**: Persistent chat history with local storage
+
+### 🎨 User Interface
+- **Modern Design**: Clean, responsive interface with smooth animations
+- **Dark/Light Theme**: Toggle between themes with persistent preference
+- **Voice Visualization**: Real-time audio waveform display during recording
+- **Loading Indicators**: Beautiful typing animations and status feedback
+- **Toast Notifications**: User-friendly error and success messages
+
+### 🔧 Advanced Settings
+- **AI Personality**: Choose from 5 different AI personalities
+- **Multi-language Support**: 10+ languages for speech recognition
+- **Voice Selection**: Choose from available system voices
+- **Model Selection**: Switch between different AI models on-the-fly
+
+### 🛡️ Security & Performance
+- **Rate Limiting**: Prevents API abuse with configurable limits
+- **Security Headers**: Helmet.js for enhanced security
+- **CORS Protection**: Configurable cross-origin resource sharing
+- **Error Recovery**: Automatic retry logic with exponential backoff
+- **Graceful Shutdown**: Proper cleanup on server termination
+
+### ⌨️ Accessibility
+- **Keyboard Shortcuts**: Full keyboard navigation support
+- **ARIA Labels**: Screen reader compatibility
+- **Focus Management**: Proper focus handling for accessibility
+- **Reduced Motion**: Respects user's motion preferences
+
+## 🚀 Quick Start  -- HOW TO RUN 
+
+### Prerequisites
+- Node.js 16+ 
+- npm 8+
+- OpenRouter API key ([Get one here](https://openrouter.ai/))
+
+### Installation
+
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd English-Tutor-AI
+   ```
+
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
+
+3. **Set up environment variables**
+   ```bash
+   cp env.example .env
+   ```
+   Edit `.env` and add your OpenRouter API key:
+   ```
+   OPENAI_API_KEY=your_openrouter_api_key_here
+   ```
+
+4. **Start the server**
+   ```bash
+   npm start
+   ```
+
+5. **Open your browser**
+   Navigate to `http://localhost:3000`
+
+## 🎓 Running the English Tutor AI Application
+
+### Step-by-Step Guide
+
+The English Tutor AI is a specialized voice-enabled application designed to help users improve their English speaking skills through interactive conversations with AI tutors.
+
+#### 1. **Prerequisites Check**
+Before running the application, ensure you have:
+- **Node.js 16+** installed on your system
+- **npm 8+** (comes with Node.js)
+- **A modern web browser** (Chrome, Edge, or Safari recommended for best voice support)
+- **Microphone access** for voice interaction features
+
+#### 2. **Installation Steps**
 
 ```bash
-cd scenespeak2-ai
+# Navigate to the project directory
+cd English-Turor-AI-git
+
+# Install all required dependencies
 npm install
 ```
 
-创建 `.env`：
+#### 3. **Environment Configuration (Optional)**
+
+The application works in demo mode without an API key, but for full AI capabilities:
 
 ```bash
+# Copy the environment template
 cp env.example .env
-```
 
-配置环境变量：
-
-```env
-DEEPSEEK_API_KEY=your_deepseek_api_key
-AI_API_URL=https://api.deepseek.com/chat/completions
-AI_MODEL=deepseek-chat
-PORT=3010
+# Edit the .env file and add your OpenRouter API key
+OPENAI_API_KEY=your_openrouter_api_key_here
+PORT=3000
 NODE_ENV=development
 ```
 
-启动：
+#### 4. **Start the Application**
 
 ```bash
-PORT=3010 npm start
+# Start the English Tutor AI server
+npm start
 ```
 
-浏览器访问：
-
-```text
-http://localhost:3010
+You should see output indicating the server is running:
+```
+Server started successfully on port 3000
+✅ English Tutor AI is ready!
 ```
 
-如果服务运行在远程服务器上，建议使用 SSH 本地端口转发，以保证浏览器麦克风权限正常：
+#### 5. **Access the Application**
+
+1. **Open your web browser**
+2. **Navigate to**: `http://localhost:3000`
+3. **Allow microphone permissions** when prompted
+4. **Start practicing English!**
+
+### 🎯 English Learning Features
+
+Once the application is running, you can access these specialized English learning features:
+
+#### **AI Tutor Personalities**
+Choose from specialized English tutors:
+- **📚 Grammar Tutor**: Focuses on grammar corrections and explanations
+- **🗣️ Pronunciation Coach**: Helps with pronunciation and accent reduction
+- **💬 Conversation Partner**: Engages in natural conversations
+- **📖 Vocabulary Builder**: Introduces new words and phrases
+- **⚡ Fluency Coach**: Builds speaking confidence and flow
+
+#### **Learning Modes**
+- **Conversation Practice**: Natural dialogue for fluency building
+- **Grammar Focus**: Targeted grammar correction and explanation
+- **Pronunciation Training**: Speech analysis and pronunciation tips
+- **Vocabulary Expansion**: Learn new words in context
+
+#### **Difficulty Levels**
+- **Beginner**: Simple vocabulary and basic grammar
+- **Intermediate**: Moderate complexity with varied topics
+- **Advanced**: Complex discussions and advanced vocabulary
+
+### 🎤 How to Use Voice Features
+
+1. **Click the microphone button** to start voice recording
+2. **Speak clearly** in English - the AI will analyze your speech
+3. **Receive feedback** on grammar, pronunciation, and vocabulary
+4. **Continue the conversation** to practice different topics
+
+### 🔧 Application Status Check
+
+To verify the application is running properly:
 
 ```bash
-ssh -L 3011:127.0.0.1:3010 user@server
+# Check application health
+curl http://localhost:3000/health
 ```
 
-然后访问：
+You should receive a JSON response showing the application status, uptime, and version information.
 
-```text
-http://localhost:3011
+### 🛑 Stopping the Application
+
+To stop the English Tutor AI application:
+- Press `Ctrl + C` in the terminal where the application is running
+- Or close the terminal window
+
+### 📱 Mobile and Tablet Support
+
+The English Tutor AI is fully responsive and works on:
+- **Desktop browsers** (recommended for best experience)
+- **Mobile devices** (iOS Safari, Android Chrome)
+- **Tablets** (iPad, Android tablets)
+
+### 🔊 Audio Requirements
+
+For optimal experience:
+- **Enable microphone permissions** in your browser
+- **Use headphones** to prevent audio feedback
+- **Ensure quiet environment** for better speech recognition
+- **Speak clearly** and at moderate pace
+
+### 💡 Demo Mode vs Full Mode
+
+- **Demo Mode** (no API key): Basic functionality with fallback responses
+- **Full Mode** (with API key): Complete AI-powered tutoring with advanced analysis
+
+## 🎮 Usage
+
+### Basic Usage
+1. **Click the microphone button** to start voice recognition
+2. **Speak your message** clearly into the microphone
+3. **Wait for the AI response** - it will be both displayed and spoken
+4. **View conversation history** in the chat panel above
+
+### Advanced Features
+
+#### Settings Panel
+- Click the **gear icon** to open settings
+- **AI Model**: Choose between GPT-3.5, GPT-4, Claude models
+- **Language**: Select your preferred language for speech recognition
+- **Voice**: Choose from available system voices for responses
+- **Personality**: Select AI personality (Helpful, Creative, Technical, Casual, Professional)
+
+#### Keyboard Shortcuts
+- **Space**: Toggle voice recording
+- **Escape**: Close settings panel or notifications
+- **Ctrl/Cmd + M**: Toggle mute
+- **Ctrl/Cmd + T**: Toggle theme
+
+#### Voice Controls
+- **Microphone Button**: Start/stop voice recording
+- **Settings Button**: Open configuration panel
+- **Mute Button**: Disable/enable voice responses
+- **Stop Button**: Stop current speech synthesis
+
+## 🔧 Configuration
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `OPENAI_API_KEY` | OpenRouter API key | Required |
+| `PORT` | Server port | 3000 |
+| `NODE_ENV` | Environment mode | development |
+| `RATE_LIMIT_WINDOW_MS` | Rate limit window | 900000 (15 min) |
+| `RATE_LIMIT_MAX_REQUESTS` | Max requests per window | 100 |
+
+### Available AI Models
+
+| Model | Provider | Description |
+|-------|----------|-------------|
+| `openai/gpt-3.5-turbo` | OpenAI | Fast, efficient general-purpose model |
+| `openai/gpt-4` | OpenAI | Most capable OpenAI model |
+| `anthropic/claude-3-haiku` | Anthropic | Fast Claude model |
+| `anthropic/claude-3-sonnet` | Anthropic | Balanced Claude model |
+| `google/gemini-pro` | Google | Google's advanced model |
+
+### Personality Types
+
+| Personality | Description |
+|-------------|-------------|
+| **Helpful** | Friendly, clear, and useful responses |
+| **Creative** | Imaginative and innovative responses |
+| **Technical** | Detailed technical information and examples |
+| **Casual** | Relaxed, conversational tone |
+| **Professional** | Formal, business-appropriate responses |
+
+## 🌐 Browser Support
+
+### Speech Recognition
+- Chrome 25+
+- Edge 79+
+- Safari 14.1+
+- Firefox (limited support)
+
+### Speech Synthesis
+- Chrome 33+
+- Edge 14+
+- Safari 7+
+- Firefox 49+
+
+## 📱 Mobile Support
+
+The application is fully responsive and works on mobile devices, though speech recognition support may vary by browser and device.
+
+## 🔍 API Endpoints
+
+### Health Check
+```
+GET /health
+```
+Returns server status and metrics.
+
+### Available Models
+```
+GET /api/models
+```
+Returns list of supported AI models.
+
+### Personalities
+```
+GET /api/personalities
+```
+Returns available AI personalities.
+
+## 🛠️ Development
+
+### Development Mode
+```bash
+npm run dev
+```
+Starts the server with nodemon for automatic restarts.
+
+### Code Formatting
+```bash
+npm run format
 ```
 
-## Demo 视频
+### Linting
+```bash
+npm run lint
+```
 
-待补充：请将 demo 视频上传至 bilibili、网盘或其他可访问平台，并在此处填写链接。
+## 🐛 Troubleshooting
 
-## 开发说明
+### Common Issues
 
-本项目当前版本使用浏览器 Web Speech API 做语音转文本。该能力依赖浏览器实现，可能受网络和浏览器环境影响。后续计划接入后端 ASR，例如 Whisper、FunASR 或云语音识别服务，以提升识别稳定性和准确率。
+**Microphone not working**
+- Ensure microphone permissions are granted
+- Check if another application is using the microphone
+- Try refreshing the page
+
+**API errors**
+- Verify your OpenRouter API key is correct
+- Check your internet connection
+- Monitor rate limits
+
+**Speech synthesis not working**
+- Check browser compatibility
+- Ensure audio is not muted
+- Try different voices in settings
+
+### Error Messages
+
+| Message | Cause | Solution |
+|---------|-------|----------|
+| "Speech recognition not supported" | Browser incompatibility | Use Chrome/Edge/Safari |
+| "Microphone access denied" | Permission not granted | Allow microphone access |
+| "Too many requests" | Rate limit exceeded | Wait before making more requests |
+| "Network error" | Connection issues | Check internet connection |
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
+
+## 🙏 Acknowledgments
+
+- OpenRouter for AI model access
+- Web Speech API for browser speech capabilities
+- Socket.IO for real-time communication
+- Font Awesome for icons
+
+## 📞 Support
+
+For support, please open an issue on GitHub or contact the development team.
+
+
+---
+
+
+
+ased on my analysis of your codebase, here are the recommendations for your project:
+
+Suitable Project Name
+
+- LinguaCoach AI (Recommended)
+- SpeakFluent AI: Intelligent English Speaking Mentor
+- VoiceBridge: AI-Powered Language Learning Platform
+Repo Name
+
+- ai-english-speaking-tutor
+- lingua-coach-voice-ai
+- intelligent-voice-tutor
+Project Tech Stack for Job Role
+
+- Role: Full-Stack Developer (AI Integration)
+  - Stack : Node.js, Express, Socket.io, Web Speech API, OpenRouter (LLMs), Vanilla JS/CSS.
+- Role: Frontend Engineer (Speech & Real-time Systems)
+  - Stack : Web Speech API (STT/TTS), Socket.io Client, CSS3 Custom Properties, Responsive UI Design.
+- Role: Backend Engineer (API & Performance)
+  - Stack : Node.js, Express, Rate Limiting, Helmet Security, Compression, Axios with Retry Logic.
+Major Project Tech Stack Used
+
+- Core Engine : Node.js & Express.js
+- Real-time Engine : Socket.IO (for bidirectional voice-to-text data flow)
+- AI Brain : OpenRouter API (GPT-4, Claude 3, Gemini integration)
+- Voice Processing : Web Speech API (Native browser Speech-to-Text & Text-to-Speech)
+- Styling & UI : Modern CSS3 (Variables, Grid, Flexbox) & Vanilla JavaScript
+Student Project Recommendation This is an excellent project for a student because it demonstrates:
+
+- Real-time Data Handling : Most student projects are static; using Socket.io shows you understand low-latency communication.
+- AI Implementation : You aren't just using a basic API; you've implemented system prompting , personality engineering , and error-correction logic .
+- Native Browser APIs : Using the Web Speech API shows deep knowledge of browser capabilities beyond just standard DOM manipulation.
+- Professional Engineering Practices : Your code includes rate limiting , security headers , retry logic with backoff , and clean documentation .
+Presentation Tip for Interviews :
+ "I built a real-time AI English tutor that uses a bidirectional WebSocket connection to provide instantaneous feedback on speech. I chose the Web Speech API for low-latency voice recognition and integrated multiple LLMs via OpenRouter to provide specialized tutoring in grammar, pronunciation, and fluency."
+
+**Built by ABHIJAY KUMAR SHAH 22BCE11001 **
+
 

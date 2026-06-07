@@ -11,6 +11,8 @@ const fs = require("fs/promises");
 const os = require("os");
 const path = require("path");
 const { spawn } = require("child_process");
+const crypto = require("crypto");
+const WebSocket = require("ws");
 const app = express();
 const http = require("http").createServer(app);
 const io = require("socket.io")(http, {
@@ -30,7 +32,13 @@ const CONFIG = {
   timeout: 30000,
   maxMessageLength: 1000,
   rateLimitWindow: 15 * 60 * 1000, // 15 minutes
-  rateLimitMax: 100 // requests per window
+  rateLimitMax: 100, // requests per window
+  tencentAppId: process.env.TENCENT_SOE_APPID || process.env.TENCENTCLOUD_APPID || "",
+  tencentSecretId: process.env.TENCENTCLOUD_SECRET_ID || process.env.TENCENT_SECRET_ID || "",
+  tencentSecretKey: process.env.TENCENTCLOUD_SECRET_KEY || process.env.TENCENT_SECRET_KEY || "",
+  tencentSoeWsEndpoint: process.env.TENCENT_SOE_WS_ENDPOINT || "wss://soe.cloud.tencent.com/soe/api",
+  tencentSoeEndpoint: process.env.TENCENT_SOE_ENDPOINT || "https://soe.tencentcloudapi.com",
+  tencentSoeRegion: process.env.TENCENT_SOE_REGION || "ap-guangzhou"
 };
 
 const OPEN_PRONOUNCE_DIR = process.env.OPEN_PRONOUNCE_DIR ||
@@ -252,7 +260,400 @@ function decodeAudioBase64(audioBase64) {
   return Buffer.from(clean, "base64");
 }
 
+function hasTencentSoeConfig() {
+  return Boolean(CONFIG.tencentSecretId && CONFIG.tencentSecretKey);
+}
+
+function hasTencentSoeNewConfig() {
+  return Boolean(CONFIG.tencentAppId && CONFIG.tencentSecretId && CONFIG.tencentSecretKey);
+}
+
+async function runTencentSoeNewEvaluation(audioBase64, expectedText) {
+  const audioBuffer = getTencentPcmAudioBuffer(decodeAudioBase64(audioBase64));
+  const refText = normalizeSoeRefText(expectedText);
+  const voiceId = "soe-" + Date.now() + "-" + crypto.randomBytes(6).toString("hex");
+  const url = buildTencentSoeNewUrl(refText, voiceId);
+  const response = await sendTencentSoeNewAudio(url, audioBuffer);
+  return normalizeTencentSoeNewResult(response, refText, voiceId);
+}
+
+function getTencentPcmAudioBuffer(buffer) {
+  if (buffer.length > 44 && buffer.slice(0, 4).toString("ascii") === "RIFF" && buffer.slice(8, 12).toString("ascii") === "WAVE") {
+    let offset = 12;
+    while (offset + 8 <= buffer.length) {
+      const chunkId = buffer.slice(offset, offset + 4).toString("ascii");
+      const chunkSize = buffer.readUInt32LE(offset + 4);
+      const dataStart = offset + 8;
+      if (chunkId === "data") {
+        return buffer.slice(dataStart, dataStart + chunkSize);
+      }
+      offset = dataStart + chunkSize;
+    }
+    return buffer.slice(44);
+  }
+  return buffer;
+}
+
+function buildTencentSoeNewUrl(refText, voiceId) {
+  const base = CONFIG.tencentSoeWsEndpoint.replace(/\/$/, "") + "/" + CONFIG.tencentAppId;
+  const host = new URL(base).host;
+  const path = new URL(base).pathname;
+  const now = Math.floor(Date.now() / 1000);
+  const params = {
+    secretid: CONFIG.tencentSecretId,
+    timestamp: now,
+    expired: now + 3600,
+    nonce: Math.floor(Math.random() * 1000000000),
+    server_engine_type: "16k_en",
+    voice_id: voiceId,
+    voice_format: 0,
+    text_mode: 0,
+    ref_text: refText,
+    eval_mode: 1,
+    score_coeff: 3.0,
+    sentence_info_enabled: 1,
+    rec_mode: 0,
+    work_mode: 0
+  };
+  const sortedKeys = Object.keys(params).sort();
+  const queryForSign = sortedKeys.map(key => key + "=" + params[key]).join("&");
+  const signText = host + path + "?" + queryForSign;
+  const signature = crypto.createHmac("sha1", CONFIG.tencentSecretKey).update(signText, "utf8").digest("base64");
+  const query = sortedKeys
+    .map(key => encodeURIComponent(key) + "=" + encodeURIComponent(String(params[key])))
+    .concat("signature=" + encodeURIComponent(signature))
+    .join("&");
+  return base + "?" + query;
+}
+
+function sendTencentSoeNewAudio(url, audioBuffer) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url, { perMessageDeflate: false });
+    const timeout = setTimeout(() => {
+      ws.terminate();
+      reject(new Error("Tencent SOE new WebSocket timed out"));
+    }, 45000);
+    let latestResponse = null;
+    let settled = false;
+
+    const finish = (error, result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      try { ws.close(); } catch (closeError) {}
+      error ? reject(error) : resolve(result);
+    };
+
+    ws.on("open", async () => {
+      try {
+        const chunkSize = 1280;
+        for (let offset = 0; offset < audioBuffer.length; offset += chunkSize) {
+          if (ws.readyState !== WebSocket.OPEN) return;
+          ws.send(audioBuffer.slice(offset, Math.min(offset + chunkSize, audioBuffer.length)));
+          await new Promise(resolve => setTimeout(resolve, 40));
+        }
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "end" }));
+        }
+      } catch (error) {
+        finish(error);
+      }
+    });
+
+    ws.on("message", data => {
+      const text = Buffer.isBuffer(data) ? data.toString("utf8") : String(data);
+      let parsed;
+      try {
+        parsed = JSON.parse(text);
+      } catch (error) {
+        return;
+      }
+      const code = Number(parsed.code ?? parsed.error_code ?? parsed.errcode ?? 0);
+      if (code && code !== 0) {
+        finish(new Error((parsed.message || parsed.err_msg || "Tencent SOE new error") + " (code " + code + ")"));
+        return;
+      }
+      if (parsed.result || parsed.score || parsed.SuggestedScore) {
+        latestResponse = parsed;
+      }
+      if (parsed.final === 1 || parsed.is_final === 1 || parsed.type === "final") {
+        finish(null, latestResponse || parsed);
+      }
+    });
+
+    ws.on("error", error => finish(error));
+    ws.on("close", () => {
+      if (!settled && latestResponse) finish(null, latestResponse);
+      else if (!settled) finish(new Error("Tencent SOE new WebSocket closed without result"));
+    });
+  });
+}
+
+function parseSoeNewResult(value) {
+  if (!value || typeof value !== "string") return null;
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    const obj = {};
+    const fields = ["SuggestedScore", "PronAccuracy", "PronFluency", "PronCompletion", "PronProsody"];
+    for (const field of fields) {
+      const match = value.match(new RegExp(field + ":(-?\d+(?:\.\d+)?)"));
+      if (match) obj[field] = Number(match[1]);
+    }
+    const words = [];
+    const wordRegex = /ReferenceWord:([^\s}]+)|Word:([^\s}]+)/g;
+    let match;
+    while ((match = wordRegex.exec(value))) {
+      const word = match[1] || match[2];
+      if (word && !words.some(item => item.Word === word)) words.push({ Word: word });
+    }
+    if (words.length) obj.Words = words;
+    return Object.keys(obj).length ? obj : null;
+  }
+}
+
+function normalizeTencentSoeNewResult(response, refText, voiceId) {
+  const result = parseSoeNewResult(response.result) || response.result || response;
+  const wordResults = Array.isArray(result.words) ? result.words :
+    Array.isArray(result.Words) ? result.Words :
+    Array.isArray(result.word_score_list) ? result.word_score_list : [];
+  const score = pickNumeric(result.suggested_score, result.SuggestedScore, result.pron_accuracy, result.PronAccuracy, result.score, 0);
+  const accuracy = normalizePercentMetric(pickNumeric(result.pron_accuracy, result.PronAccuracy, result.accuracy_score, score));
+  const fluency = normalizePercentMetric(pickNumeric(result.pron_fluency, result.PronFluency, result.fluency_score, 0));
+  const completion = normalizePercentMetric(pickNumeric(result.pron_completion, result.PronCompletion, result.integrity_score, result.completion_score, 0));
+  const prosody = normalizePercentMetric(pickNumeric(result.pron_prosody, result.PronProsody, result.prosody_score, 0));
+  const problemWords = wordResults
+    .map(item => ({
+      word: item.word || item.Word || item.mem_word || item.MemWord || item.reference_word,
+      score: pickNumeric(item.pron_accuracy, item.PronAccuracy, item.suggested_score, item.SuggestedScore, item.score, 0),
+      phoneme: item.phone_info || item.PhoneInfo || item.phoneme || null
+    }))
+    .filter(item => item.word && item.score > 0 && item.score < 75)
+    .sort((a, b) => a.score - b.score)
+    .slice(0, 6);
+
+  return {
+    score: Math.round(score),
+    transcript: result.sentence || result.Sentence || result.text || result.Text || refText,
+    feedback: buildTencentFeedback(score, accuracy, fluency, completion, problemWords),
+    errors: problemWords,
+    metrics: {
+      accuracy: Math.round(accuracy),
+      fluency: Math.round(fluency),
+      completion: Math.round(completion),
+      prosody: Math.round(prosody)
+    },
+    raw: {
+      voiceId,
+      code: response.code,
+      message: response.message
+    },
+    source: "tencent-soe-new"
+  };
+}
+
+async function runTencentPronunciationEvaluation(audioBase64, expectedText) {
+  if (hasTencentSoeNewConfig()) {
+    try {
+      return await runTencentSoeNewEvaluation(audioBase64, expectedText);
+    } catch (error) {
+      console.warn("Tencent SOE new WebSocket evaluation failed, trying legacy API:", error.message);
+    }
+  }
+
+
+  const audioBuffer = decodeAudioBase64(audioBase64);
+  const refText = normalizeSoeRefText(expectedText);
+  const sessionId = "soe-" + Date.now() + "-" + crypto.randomBytes(6).toString("hex");
+  const payload = {
+    SeqId: 1,
+    IsEnd: 1,
+    VoiceFileType: 2,
+    VoiceEncodeType: 1,
+    UserVoiceData: audioBuffer.toString("base64"),
+    SessionId: sessionId,
+    RefText: refText,
+    WorkMode: 1,
+    EvalMode: 1,
+    ScoreCoeff: 3.0,
+    ServerType: 0
+  };
+
+  let response = await callTencentSoe("TransmitOralProcessWithInit", payload);
+  if (response.Status === "Evaluating") {
+    response = await pollTencentSoeResult(sessionId);
+  }
+
+  if (response.Error) {
+    throw new Error(response.Error.Message || response.Error.Code || "Tencent SOE error");
+  }
+
+  return normalizeTencentPronunciationResult(response, refText);
+}
+
+function normalizeSoeRefText(text) {
+  const cleaned = String(text || "Please speak naturally.")
+    .replace(/[\r\n]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const words = cleaned.split(/\s+/).filter(Boolean).slice(0, 30);
+  return words.join(" ") || "Please speak naturally.";
+}
+
+async function pollTencentSoeResult(sessionId) {
+  for (let i = 0; i < 8; i++) {
+    await new Promise(resolve => setTimeout(resolve, 700));
+    const response = await callTencentSoe("TransmitOralProcess", {
+      SeqId: 1,
+      IsEnd: 1,
+      IsQuery: 1,
+      SessionId: sessionId,
+      WorkMode: 1
+    });
+    if (response.Status !== "Evaluating") {
+      return response;
+    }
+  }
+  throw new Error("Tencent SOE evaluation timed out");
+}
+
+async function callTencentSoe(action, payload) {
+  const endpoint = CONFIG.tencentSoeEndpoint;
+  const host = new URL(endpoint).host;
+  const service = "soe";
+  const version = "2018-07-24";
+  const timestamp = Math.floor(Date.now() / 1000);
+  const date = new Date(timestamp * 1000).toISOString().slice(0, 10);
+  const body = JSON.stringify(payload);
+  const hashedRequestPayload = sha256Hex(body);
+  const canonicalHeaders = "content-type:application/json\nhost:" + host + "\n";
+  const signedHeaders = "content-type;host";
+  const canonicalRequest = [
+    "POST",
+    "/",
+    "",
+    canonicalHeaders,
+    signedHeaders,
+    hashedRequestPayload
+  ].join("\n");
+  const credentialScope = date + "/" + service + "/tc3_request";
+  const stringToSign = [
+    "TC3-HMAC-SHA256",
+    timestamp,
+    credentialScope,
+    sha256Hex(canonicalRequest)
+  ].join("\n");
+  const secretDate = hmac("TC3" + CONFIG.tencentSecretKey, date);
+  const secretService = hmac(secretDate, service);
+  const secretSigning = hmac(secretService, "tc3_request");
+  const signature = hmac(secretSigning, stringToSign, "hex");
+  const authorization = "TC3-HMAC-SHA256 Credential=" + CONFIG.tencentSecretId + "/" + credentialScope +
+    ", SignedHeaders=" + signedHeaders + ", Signature=" + signature;
+
+  const response = await axios.post(endpoint, body, {
+    timeout: 30000,
+    headers: {
+      Authorization: authorization,
+      "Content-Type": "application/json",
+      Host: host,
+      "X-TC-Action": action,
+      "X-TC-Timestamp": String(timestamp),
+      "X-TC-Version": version,
+      "X-TC-Region": CONFIG.tencentSoeRegion
+    }
+  });
+
+  const data = response.data && response.data.Response ? response.data.Response : response.data;
+  if (data && data.Error) {
+    throw new Error(data.Error.Code + ": " + data.Error.Message);
+  }
+  return data || {};
+}
+
+function sha256Hex(value) {
+  return crypto.createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function hmac(key, value, encoding) {
+  return crypto.createHmac("sha256", key).update(value, "utf8").digest(encoding);
+}
+
+function normalizeTencentPronunciationResult(response, refText) {
+  const wordResults = Array.isArray(response.Words) ? response.Words : [];
+  const sentenceScores = Array.isArray(response.SentenceInfoSet) ? response.SentenceInfoSet : [];
+  const firstSentence = sentenceScores[0] || {};
+  const score = pickNumeric(response.SuggestedScore, response.PronAccuracy, firstSentence.SuggestedScore, firstSentence.PronAccuracy, 0);
+  const accuracy = pickNumeric(response.PronAccuracy, firstSentence.PronAccuracy, score);
+  const fluency = normalizePercentMetric(pickNumeric(response.PronFluency, firstSentence.PronFluency, 0));
+  const completion = normalizePercentMetric(pickNumeric(response.PronCompletion, firstSentence.PronCompletion, 0));
+  const prosody = normalizePercentMetric(pickNumeric(response.PronProsody, firstSentence.PronProsody, 0));
+  const problemWords = wordResults
+    .map(item => ({
+      word: item.Word || item.MemWord || item.ReferenceWord,
+      score: pickNumeric(item.PronAccuracy, item.SuggestedScore, item.Score, 0),
+      phoneme: item.PhoneInfo || item.Phoneme || null
+    }))
+    .filter(item => item.word && item.score > 0 && item.score < 75)
+    .sort((a, b) => a.score - b.score)
+    .slice(0, 6);
+
+  return {
+    score: Math.round(score),
+    transcript: response.Sentence || response.Text || refText,
+    feedback: buildTencentFeedback(score, accuracy, fluency, completion, problemWords),
+    errors: problemWords,
+    metrics: {
+      accuracy: Math.round(accuracy),
+      fluency: Math.round(fluency),
+      completion: Math.round(completion),
+      prosody: Math.round(prosody)
+    },
+    raw: {
+      requestId: response.RequestId,
+      status: response.Status,
+      sessionId: response.SessionId
+    },
+    source: "tencent-soe"
+  };
+}
+
+function pickNumeric(...values) {
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return 0;
+}
+
+function normalizePercentMetric(value) {
+  if (!Number.isFinite(Number(value))) return 0;
+  const numeric = Number(value);
+  if (numeric >= 0 && numeric <= 1) return numeric * 100;
+  return numeric;
+}
+
+function buildTencentFeedback(score, accuracy, fluency, completion, problemWords) {
+  const notes = [];
+  if (score >= 85) notes.push("整体发音清晰自然");
+  else if (score >= 70) notes.push("整体可理解，部分音素和节奏还可以更稳定");
+  else notes.push("建议放慢语速，先把单词发完整再提高速度");
+
+  if (accuracy && accuracy < 75) notes.push("准确度偏低，注意元音和词尾辅音");
+  if (fluency && fluency < 75) notes.push("流利度可以提升，练习短语连读和自然停顿");
+  if (completion && completion < 80) notes.push("完整度不足，尽量把句子读完");
+  if (problemWords.length) notes.push("重点练习：" + problemWords.map(item => item.word).join(", "));
+  return notes.join("；") + "。";
+}
+
 async function runPronunciationAnalysis(audioBase64, expectedText) {
+  if (hasTencentSoeConfig()) {
+    try {
+      return await runTencentPronunciationEvaluation(audioBase64, expectedText);
+    } catch (error) {
+      console.warn("Tencent SOE pronunciation evaluation failed, falling back:", error.message);
+    }
+  }
+
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "speaking-practice-"));
   const inputPath = path.join(tempDir, "recording.webm");
   const audioBuffer = decodeAudioBase64(audioBase64);
@@ -1183,27 +1584,88 @@ Conversation Mode:
 
 function generateSessionSummary(payload) {
   const interactions = Array.isArray(payload.interactions) ? payload.interactions : [];
+  const pronunciationResults = Array.isArray(payload.pronunciationResults) ? payload.pronunciationResults : [];
   const scores = payload.scores || {};
   const scenario = SCENARIOS[payload.scenario] || null;
   const wordsSpoken = Number(payload.wordsSpoken || 0);
   const messagesCount = Number(payload.messagesCount || interactions.length || 0);
   const durationMs = Number(payload.durationMs || 0);
   const minutes = Math.max(1, Math.round(durationMs / 60000));
+  const scoreEntries = {
+    grammar: normalizeScore(scores.grammar),
+    pronunciation: normalizeScore(scores.pronunciation),
+    vocabulary: normalizeScore(scores.vocabulary),
+    fluency: normalizeScore(scores.fluency)
+  };
+  const validScoreValues = Object.values(scoreEntries).filter(value => Number.isFinite(value));
+  const overallScore = validScoreValues.length
+    ? Math.round(validScoreValues.reduce((sum, value) => sum + value, 0) / validScoreValues.length)
+    : null;
   const weakAreas = Object.entries({
-    grammar: scores.grammar,
-    pronunciation: scores.pronunciation,
-    vocabulary: scores.vocabulary,
-    fluency: scores.fluency
+    grammar: scoreEntries.grammar,
+    pronunciation: scoreEntries.pronunciation,
+    vocabulary: scoreEntries.vocabulary,
+    fluency: scoreEntries.fluency
   })
-    .filter(([, value]) => Number(value) < 75)
+    .filter(([, value]) => Number.isFinite(value) && value < 75)
     .map(([key]) => key);
+
+  const areaLabels = {
+    grammar: "语法",
+    pronunciation: "发音",
+    vocabulary: "词汇表达",
+    fluency: "流利度"
+  };
+
+  const scoreCards = [
+    {
+      label: "语法",
+      value: formatScore(scoreEntries.grammar),
+      percent: scoreEntries.grammar || 0,
+      note: getScoreNote(scoreEntries.grammar, "句子结构与时态控制")
+    },
+    {
+      label: "发音",
+      value: formatScore(scoreEntries.pronunciation),
+      percent: scoreEntries.pronunciation || 0,
+      note: getScoreNote(scoreEntries.pronunciation, "准确度、完整度和清晰度")
+    },
+    {
+      label: "词汇",
+      value: formatScore(scoreEntries.vocabulary),
+      percent: scoreEntries.vocabulary || 0,
+      note: getScoreNote(scoreEntries.vocabulary, "表达丰富度和场景贴合度")
+    },
+    {
+      label: "流利度",
+      value: formatScore(scoreEntries.fluency),
+      percent: scoreEntries.fluency || 0,
+      note: getScoreNote(scoreEntries.fluency, "连续表达和停顿控制")
+    }
+  ];
 
   const highlights = [];
   if (messagesCount >= 3) highlights.push("你完成了多轮连续对话，能保持交流推进。");
   if (wordsSpoken >= 60) highlights.push("你的输出量足够用于流利度分析。");
-  if (Number(scores.fluency) >= 80) highlights.push("你的回答整体比较流畅。");
-  if (Number(scores.grammar) >= 80) highlights.push("本次练习中语法控制较稳定。");
+  if (Number(scoreEntries.fluency) >= 80) highlights.push("你的回答整体比较流畅。");
+  if (Number(scoreEntries.grammar) >= 80) highlights.push("本次练习中语法控制较稳定。");
+  if (Number(scoreEntries.pronunciation) >= 75) highlights.push("本次发音整体可理解，具备继续进行真实对话的基础。");
+  if (scenario) highlights.push(`你围绕「${scenario.name}」完成了场景化练习，方向比较明确。`);
   if (highlights.length === 0) highlights.push("你完成了一次有明确目标的口语练习。");
+
+  const diagnosis = [];
+  if (messagesCount < 3) diagnosis.push("本次对话轮次偏少，报告判断会更依赖单句表现，建议至少完成 3 轮再总结。");
+  if (wordsSpoken < 40) diagnosis.push("本次英文输出量偏少，可以尝试把每个回答扩展到 2 句以上。");
+  if (weakAreas.length > 0) {
+    diagnosis.push(`需要优先关注：${weakAreas.map(key => areaLabels[key]).join("、")}。`);
+  }
+  const latestPronunciation = pronunciationResults[pronunciationResults.length - 1] || null;
+  if (latestPronunciation?.problemWords?.length) {
+    diagnosis.push(`发音中建议重点复练：${latestPronunciation.problemWords.slice(0, 5).join("、")}。`);
+  }
+  if (diagnosis.length === 0) {
+    diagnosis.push("整体表现稳定，可以在下一轮中提高回答长度和场景细节。");
+  }
 
   const nextSteps = [];
   if (weakAreas.includes("pronunciation")) nextSteps.push("重复两段短回答，重点放慢语速并说清词尾。");
@@ -1212,21 +1674,66 @@ function generateSessionSummary(payload) {
   if (weakAreas.includes("fluency")) nextSteps.push("回答时加入一个原因和一个例子，训练更长的表达。");
   if (nextSteps.length === 0) nextSteps.push("下次可以提高难度，或切换为即时纠错模式。");
 
+  const practicePlan = buildPracticePlan(weakAreas, scenario);
+
   return {
     title: scenario ? `${scenario.name} 练习总结` : "口语练习总结",
     scenario: scenario ? scenario.name : "通用练习",
+    overview: buildSummaryOverview({ scenario, messagesCount, wordsSpoken, overallScore }),
     metrics: {
       messagesCount,
       wordsSpoken,
       minutes,
       wordsPerMinute: Math.round(wordsSpoken / minutes),
-      scores
+      overallScore: overallScore || "--",
+      scores: scoreEntries
     },
+    scoreCards,
     highlights,
+    diagnosis,
     weakAreas,
+    practicePlan,
     nextSteps,
     closing: "本次练习完成得不错。下一步最有效的提升方式，是把修改后的回答大声复述出来，而不只是阅读反馈。"
   };
+}
+
+function normalizeScore(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return null;
+  return Math.max(0, Math.min(100, Math.round(number)));
+}
+
+function formatScore(value) {
+  return Number.isFinite(value) ? `${value}分` : "--";
+}
+
+function getScoreNote(score, fallback) {
+  if (!Number.isFinite(score)) return "本次数据不足，继续练习后会更新";
+  if (score >= 85) return "表现稳定，可以提高任务难度";
+  if (score >= 70) return fallback;
+  return "建议作为下轮练习重点";
+}
+
+function buildSummaryOverview({ scenario, messagesCount, wordsSpoken, overallScore }) {
+  const scenarioText = scenario ? `在「${scenario.name}」场景中` : "在本次练习中";
+  const scoreText = Number.isFinite(overallScore) ? `综合表现约 ${overallScore} 分` : "已完成基础练习记录";
+  return `${scenarioText}，你完成了 ${messagesCount} 轮对话，累计说出 ${wordsSpoken} 个词，${scoreText}。`;
+}
+
+function buildPracticePlan(weakAreas, scenario) {
+  const plan = [];
+  if (scenario) {
+    plan.push(`复盘 1 个「${scenario.name}」高频问题`);
+  } else {
+    plan.push("选择 1 个真实场景继续练习");
+  }
+  if (weakAreas.includes("pronunciation")) plan.push("跟读同一句 3 遍");
+  if (weakAreas.includes("grammar")) plan.push("重说 1 个纠正后的句子");
+  if (weakAreas.includes("vocabulary")) plan.push("替换 2 个更自然表达");
+  if (weakAreas.includes("fluency")) plan.push("用 because / for example 扩展回答");
+  if (plan.length < 3) plan.push("把回答扩展到 2-3 句", "录音后立刻复听一次");
+  return plan.slice(0, 5);
 }
 
 // Extract Learning Feedback from AI Response
