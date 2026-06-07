@@ -51,5 +51,10 @@ class SessionStore:
             raise KeyError(f"Session not found: {session_id}")
         return session
 
+    def end(self, session_id: str) -> ConversationSession:
+        session = self.require(session_id)
+        session.status = SessionStatus.ENDED
+        return session
+
 
 session_store = SessionStore()

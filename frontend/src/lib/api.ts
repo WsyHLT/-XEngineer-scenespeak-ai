@@ -104,6 +104,23 @@ export async function startSession(sceneId: SceneId): Promise<SessionStartRespon
   });
 }
 
+export interface SessionEndResponse {
+  session_id: string;
+  status: string;
+  report: SessionReport | null;
+}
+
+/** 结束会话并从后端 LLM 评测引擎获取真实报告 */
+export async function endSession(
+  sessionId: string,
+  generateReport = true,
+): Promise<SessionEndResponse> {
+  return request<SessionEndResponse>(`/api/session/${sessionId}/end`, {
+    method: "POST",
+    body: JSON.stringify({ generate_report: generateReport }),
+  });
+}
+
 /** 解析 SSE 流，逐条 yield TurnEventPayload */
 export async function* consumeSSE(
   path: string,
@@ -263,8 +280,8 @@ export async function* sendMessageStream(
   yield* consumeSSE("/api/chat/message", { session_id: sessionId, text });
 }
 
-/** 根据会话纠错记录生成 Demo 课后报告（后端 report API 就绪后可替换） */
-export function buildDemoReport(
+/** @deprecated 仅在后端不可用时作为降级 — 优先使用 endSession */
+export function buildFallbackReport(
   sessionId: string,
   scene: Scene,
   corrections: { user_utterance: string; correction: import("@/types/api").Correction }[],
@@ -280,7 +297,8 @@ export function buildDemoReport(
   const pronunciation = Math.max(50, Math.min(95, 88 - Math.floor(penalty / 2) * 3));
   const fluency = Math.max(45, Math.min(92, 85 - turnCount * 0.5));
   const vocabulary = Math.max(50, Math.min(90, 80 - penalty * 2));
-  const overall = Math.round((grammar + pronunciation + fluency + vocabulary) / 4);
+  const coherence = Math.max(45, Math.min(92, Math.round((fluency + grammar) / 2 - penalty)));
+  const overall = Math.round((grammar + pronunciation + fluency + vocabulary + coherence) / 5);
 
   const durationSeconds = Math.floor((Date.now() - startedAt.getTime()) / 1000);
 
@@ -293,6 +311,7 @@ export function buildDemoReport(
       grammar: Math.round(grammar),
       fluency: Math.round(fluency),
       vocabulary: Math.round(vocabulary),
+      coherence,
       overall,
     },
     corrections: corrections.map((c, i) => ({

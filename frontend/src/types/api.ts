@@ -1,6 +1,12 @@
 /** 与 backend/app/schemas 保持同步的前端类型定义 */
 
-export type SceneId = "interview" | "ordering" | "meeting";
+export type SceneId =
+  | "interview"
+  | "ordering"
+  | "meeting"
+  | "casual_chat"
+  | "travel"
+  | "ielts";
 
 export type MessageRole = "user" | "assistant" | "system";
 
@@ -83,6 +89,7 @@ export interface ScoreBreakdown {
   grammar: number;
   fluency: number;
   vocabulary: number;
+  coherence: number;
   overall: number;
 }
 

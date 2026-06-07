@@ -6,12 +6,18 @@ const SCENE_GRADIENTS: Record<SceneId, string> = {
   interview: "from-indigo-500 via-violet-500 to-purple-600",
   ordering: "from-orange-400 via-amber-500 to-yellow-500",
   meeting: "from-cyan-500 via-blue-500 to-indigo-600",
+  casual_chat: "from-sky-400 via-blue-500 to-indigo-500",
+  travel: "from-teal-400 via-cyan-500 to-blue-500",
+  ielts: "from-indigo-500 via-violet-500 to-purple-600",
 };
 
 const SCENE_ACCENT: Record<SceneId, string> = {
   interview: "shadow-indigo-200/60 hover:shadow-indigo-300/80",
   ordering: "shadow-orange-200/60 hover:shadow-orange-300/80",
   meeting: "shadow-cyan-200/60 hover:shadow-cyan-300/80",
+  casual_chat: "shadow-sky-200/60 hover:shadow-sky-300/80",
+  travel: "shadow-teal-200/60 hover:shadow-teal-300/80",
+  ielts: "shadow-violet-200/60 hover:shadow-violet-300/80",
 };
 
 type Props = {

@@ -1,7 +1,7 @@
 "use client";
 
 import InteractiveRadarChart from "@/components/chat/InteractiveRadarChart";
-import type { SkillScores } from "@/lib/cockpitMockData";
+import type { SkillScores } from "@/types/history";
 
 type Props = { skills: SkillScores };
 

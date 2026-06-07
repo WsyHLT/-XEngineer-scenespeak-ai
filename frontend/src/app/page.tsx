@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useState } from "react";
 
-import AudioChat from "@/components/AudioChat";
+import AudioChat, { type ExitOptions } from "@/components/AudioChat";
 import SceneDashboard from "@/components/SceneDashboard";
 import { fetchScenes, startSession } from "@/lib/api";
 import type { Scene } from "@/types/api";
@@ -25,6 +25,7 @@ export default function HomePage() {
   const [activeScene, setActiveScene] = useState<Scene | null>(null);
   const [startedAt, setStartedAt] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [scrollToHistory, setScrollToHistory] = useState(false);
 
   useEffect(() => {
     fetchScenes()
@@ -49,11 +50,14 @@ export default function HomePage() {
     }
   }, []);
 
-  const handleExit = useCallback(() => {
+  const handleExit = useCallback((options?: ExitOptions) => {
     setView("dashboard");
     setSessionId(null);
     setActiveScene(null);
     setStartedAt(null);
+    if (options?.scrollToHistory) {
+      setScrollToHistory(true);
+    }
   }, []);
 
   if (view === "chat" && sessionId && activeScene && startedAt) {
@@ -72,7 +76,7 @@ export default function HomePage() {
   return (
     <>
       {error && (
-        <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl border border-rose-500/30 bg-rose-950/90 px-4 py-2 text-sm text-rose-200 shadow-neon backdrop-blur-md">
+        <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-[14px] bg-rose-950/40 px-4 py-2 text-sm text-rose-200/90 shadow-depth backdrop-blur-md">
           {error}
         </div>
       )}
@@ -81,6 +85,8 @@ export default function HomePage() {
         loading={loading}
         onSelect={handleSelectScene}
         onSelectError={setError}
+        scrollToHistory={scrollToHistory}
+        onScrolledToHistory={() => setScrollToHistory(false)}
       />
     </>
   );

@@ -7,35 +7,46 @@ import CoachAvatarPanel from "@/components/chat/CoachAvatarPanel";
 import CyberChatBubble from "@/components/chat/CyberChatBubble";
 import CyberControlBar from "@/components/chat/CyberControlBar";
 import InteractiveRadarChart from "@/components/chat/InteractiveRadarChart";
-import VoiceTimbreSelector from "@/components/chat/VoiceTimbreSelector";
-import SessionReportModal from "@/components/SessionReportModal";
+import ReportDetailModal from "@/components/ReportDetailModal";
 import TranscriptReviewPanel from "@/components/TranscriptReviewPanel";
+import { IconChevronLeft, IconSpeaker, IconSpeakerWave } from "@/components/ui/CyberIcons";
+import { IconShell } from "@/components/ui/IconShell";
 import { useAudioRecorder, type RecordMode } from "@/hooks/useAudioRecorder";
 import { useCoachSessionUI } from "@/hooks/useCoachSessionUI";
 import { useTextToSpeech } from "@/hooks/useTextToSpeech";
-import { useVoiceTimbre } from "@/hooks/useVoiceTimbre";
 import {
   assessPronunciation,
-  buildDemoReport,
+  buildFallbackReport,
+  endSession,
   initConversation,
   sendMessageStream,
   transcribeAudio,
   translateText,
 } from "@/lib/api";
+import {
+  savePracticeDraft,
+  savePracticeSession,
+  sessionReportToDetail,
+} from "@/lib/practiceHistoryStore";
 import { AudioTransport } from "@/lib/audioTransport";
 import { MOCK_SKILLS } from "@/lib/cockpitMockData";
 import { getCoachPersona } from "@/lib/coachPersonas";
 import { MOCK_COACH_MESSAGES } from "@/lib/mockCoachMessages";
 import type { ChatItem } from "@/types/chat";
-import type { Correction, Scene, TurnEventPayload } from "@/types/api";
+import type { Correction, Scene, SessionReport, TurnEventPayload } from "@/types/api";
+import { DRAFT_AUTOSAVE_TURN_INTERVAL } from "@/types/history";
 
 export type { ChatItem };
+
+export type ExitOptions = {
+  scrollToHistory?: boolean;
+};
 
 type Props = {
   sessionId: string;
   scene: Scene;
   startedAt: Date;
-  onExit: () => void;
+  onExit: (options?: ExitOptions) => void;
 };
 
 export default function AudioChat({
@@ -60,7 +71,12 @@ export default function AudioChat({
     "按住麦克风说英文；AI 会用英文朗读回复",
   );
   const [micDeviceId, setMicDeviceId] = useState<string | null>(null);
-  const [report, setReport] = useState<ReturnType<typeof buildDemoReport> | null>(null);
+  const [reportDetail, setReportDetail] = useState<ReturnType<typeof sessionReportToDetail> | null>(
+    null,
+  );
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [isEnding, setIsEnding] = useState(false);
+  const sessionSavedRef = useRef(false);
   const [correctionsLog, setCorrectionsLog] = useState<
     { user_utterance: string; correction: Correction }[]
   >([]);
@@ -71,13 +87,9 @@ export default function AudioChat({
   const pendingTranscriptRef = useRef<string | null>(null);
   const pendingAudioRef = useRef<{ blob: Blob; filename: string } | null>(null);
   const tts = useTextToSpeech();
-  const { currentVoice, setCurrentVoice, voices } = useVoiceTimbre();
-  const voiceIdRef = useRef(currentVoice.voiceId);
-  voiceIdRef.current = currentVoice.voiceId;
-
   const playAssistantSpeech = useCallback(
     (text: string, messageId: string) => {
-      tts.speak(text, { messageId, voiceId: voiceIdRef.current });
+      tts.speak(text, { messageId });
     },
     [tts],
   );
@@ -111,6 +123,23 @@ export default function AudioChat({
     },
     [scrollToBottom],
   );
+
+  const buildCurrentReport = useCallback((): SessionReport => {
+    return buildFallbackReport(
+      sessionId,
+      scene,
+      correctionsLog,
+      turnCountRef.current,
+      startedAt,
+    );
+  }, [sessionId, scene, correctionsLog, startedAt]);
+
+  const maybeAutoDraft = useCallback(() => {
+    const turns = turnCountRef.current;
+    if (turns < 1 || sessionSavedRef.current) return;
+    if (turns % DRAFT_AUTOSAVE_TURN_INTERVAL !== 0) return;
+    savePracticeDraft(buildCurrentReport());
+  }, [buildCurrentReport]);
 
   /** 处理 SSE 流式事件 — 打字机效果 + 纠错附加 */
   const applyStreamEvents = useCallback(
@@ -222,9 +251,10 @@ export default function AudioChat({
         setVoiceHint(msg);
       } finally {
         setIsProcessing(false);
+        maybeAutoDraft();
       }
     },
-    [applyStreamEvents, isProcessing, sessionId],
+    [applyStreamEvents, isProcessing, sessionId, maybeAutoDraft],
   );
 
   const openTranscriptReview = useCallback((text: string) => {
@@ -291,8 +321,9 @@ export default function AudioChat({
       setVoiceHint(msg);
     } finally {
       setIsProcessing(false);
+      maybeAutoDraft();
     }
-  }, [applyStreamEvents, isProcessing, scrollToBottom, sessionId, transcriptReview]);
+  }, [applyStreamEvents, isProcessing, scrollToBottom, sessionId, transcriptReview, maybeAutoDraft]);
 
   /** WebSocket 音频传输（后端 STT 实现后自动启用） */
   const initTransport = useCallback(() => {
@@ -449,17 +480,55 @@ export default function AudioChat({
     scrollToBottom();
   }, [messages, streamingText, scrollToBottom]);
 
-  const handleEndSession = () => {
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (turnCountRef.current > 0 && !sessionSavedRef.current) {
+        e.preventDefault();
+        e.returnValue = "退出将不保存本次练习，是否确认？";
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
+
+  const handleEndSession = async () => {
+    if (isEnding) return;
+    setIsEnding(true);
     tts.stop();
-    const demoReport = buildDemoReport(
-      sessionId,
-      scene,
-      correctionsLog,
-      turnCountRef.current,
-      startedAt,
-    );
-    setReport(demoReport);
     transportRef.current?.disconnect();
+
+    let finalReport: SessionReport;
+    try {
+      const res = await endSession(sessionId);
+      finalReport = res.report ?? buildCurrentReport();
+    } catch {
+      finalReport = buildCurrentReport();
+    }
+
+    savePracticeSession(finalReport);
+    sessionSavedRef.current = true;
+    setReportDetail(sessionReportToDetail(finalReport));
+    setIsEnding(false);
+  };
+
+  const handleReportClose = () => {
+    setReportDetail(null);
+    onExit({ scrollToHistory: true });
+  };
+
+  const handleBackRequest = () => {
+    if (turnCountRef.current > 0 && !sessionSavedRef.current) {
+      setShowExitConfirm(true);
+      return;
+    }
+    transportRef.current?.disconnect();
+    onExit();
+  };
+
+  const confirmExitWithoutSave = () => {
+    setShowExitConfirm(false);
+    transportRef.current?.disconnect();
+    onExit();
   };
 
   const handleTextSubmit = (e: React.FormEvent) => {
@@ -560,67 +629,47 @@ export default function AudioChat({
           <div className="absolute -right-32 bottom-0 h-80 w-80 rounded-full bg-violet-600/10 blur-3xl" />
         </div>
 
-        {/* 顶栏 */}
-        <header className="relative z-20 flex shrink-0 items-center justify-between border-b border-white/5 bg-[#0B0F19]/80 px-4 py-3 backdrop-blur-md">
-          <button
-            type="button"
-            onClick={onExit}
-            className="rounded-xl border border-white/5 p-2 text-slate-400 transition-colors hover:border-white/10 hover:bg-white/5 hover:text-white"
-            aria-label="返回"
-          >
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
+        {/* 顶栏 — 背景对比代替硬分割线 */}
+        <header className="relative z-20 flex shrink-0 items-center justify-between bg-[#0B0F19]/90 px-4 py-4 backdrop-blur-md">
+          <IconShell size="lg" onClick={handleBackRequest} aria-label="返回" title="返回">
+            <IconChevronLeft />
+          </IconShell>
           <div className="text-center">
-            <h1 className="font-semibold text-white">
+            <h1 className="font-bold text-slate-50">
               {scene.icon} {scene.name_zh}
             </h1>
             <p className="text-xs text-slate-500">{scene.name}</p>
           </div>
           <div className="flex items-center gap-2">
-            <VoiceTimbreSelector
-              currentVoice={currentVoice}
-              voices={voices}
-              onChange={setCurrentVoice}
-            />
             {tts.isSupported && (
-              <button
-                type="button"
+              <IconShell
+                size="lg"
+                active={tts.enabled}
                 onClick={tts.toggleEnabled}
                 title={tts.enabled ? "关闭 AI 朗读" : "开启 AI 朗读"}
-                className={`rounded-xl border p-2 transition-colors ${
-                  tts.enabled
-                    ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20"
-                    : "border-white/5 text-slate-500 hover:bg-white/5 hover:text-slate-300"
-                }`}
                 aria-label={tts.enabled ? "关闭 AI 朗读" : "开启 AI 朗读"}
               >
                 {tts.isSpeaking ? (
-                  <svg className="h-5 w-5 animate-pulse" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M3 10v4h4l5 5V5L7 10H3zm13.5 2c0-1.77-1.02-3.29-2.5-4.03v8.06c1.48-.74 2.5-2.26 2.5-4.03z" />
-                  </svg>
+                  <IconSpeakerWave className="animate-pulse" />
                 ) : (
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072M12 6v12m-2-2.5L5 18H3V6h2l5-3.5V15.5z" />
-                  </svg>
+                  <IconSpeaker />
                 )}
-              </button>
+              </IconShell>
             )}
             <button
               type="button"
-              onClick={handleEndSession}
-              className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm font-medium text-slate-300 transition-colors hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-300"
+              disabled={isEnding}
+              onClick={() => void handleEndSession()}
+              className="rounded-[14px] bg-indigo-950/30 px-3 py-1.5 text-sm font-medium text-slate-400 transition-colors hover:bg-indigo-950/45 hover:text-slate-300 disabled:opacity-50"
             >
-              结束
+              {isEnding ? "生成报告…" : "结束"}
             </button>
           </div>
         </header>
 
         {/* 主内容：左 2/5 虚拟人 + 右 3/5 对话流 */}
-        <div className="relative z-10 flex min-h-0 flex-1 flex-col lg:flex-row">
-          {/* 左侧虚拟人舱 */}
-          <aside className="flex w-full shrink-0 flex-col gap-4 p-4 lg:w-2/5 lg:border-r lg:border-white/5 lg:p-6">
+        <div className="relative z-10 flex min-h-0 flex-1 flex-col lg:flex-row lg:gap-6">
+          <aside className="flex w-full shrink-0 flex-col gap-5 p-4 lg:w-2/5 lg:p-6">
             <CoachAvatarPanel
               persona={coachPersona}
               aiStatus={aiStatus}
@@ -628,12 +677,6 @@ export default function AudioChat({
               statusHint={avatarStatusHint}
             />
             <InteractiveRadarChart skills={MOCK_SKILLS} compact />
-            <VoiceTimbreSelector
-              variant="panel"
-              currentVoice={currentVoice}
-              voices={voices}
-              onChange={setCurrentVoice}
-            />
           </aside>
 
           {/* 右侧对话流 */}
@@ -641,7 +684,7 @@ export default function AudioChat({
             <div className="flex-1 overflow-y-auto px-4 py-4 lg:px-6 lg:py-6">
               <div className="mx-auto max-w-2xl space-y-5">
                 {isInsightDemo && (
-                  <p className="mb-4 text-center text-[10px] uppercase tracking-widest text-indigo-400/70">
+                  <p className="mb-4 text-center text-[10px] uppercase tracking-widest text-slate-500">
                     Insight Demo — add ?demo=insights to URL
                   </p>
                 )}
@@ -708,18 +751,48 @@ export default function AudioChat({
         />
 
         {!recorder.isSupported && (
-          <p className="pointer-events-none fixed bottom-2 left-0 right-0 z-40 text-center text-[10px] text-amber-400/80">
+          <p className="pointer-events-none fixed bottom-2 left-0 right-0 z-40 text-center text-[10px] text-slate-500">
             麦克风不可用，请用文字输入
           </p>
         )}
       </div>
 
-      {report && (
-        <SessionReportModal
-          report={report}
-          onClose={() => setReport(null)}
-          onRestart={onExit}
+      {reportDetail && (
+        <ReportDetailModal
+          report={reportDetail}
+          onClose={handleReportClose}
+          onRestart={() => {
+            setReportDetail(null);
+            onExit();
+          }}
         />
+      )}
+
+      {showExitConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl bg-[#0E1424] p-6 shadow-depth-lg">
+            <h3 className="text-base font-bold text-slate-50">退出练习？</h3>
+            <p className="mt-2 text-sm text-slate-400">
+              退出将不保存本次练习至时光回溯。建议点击「结束」生成完整报告后再离开。
+            </p>
+            <div className="mt-5 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowExitConfirm(false)}
+                className="flex-1 rounded-xl bg-white/[0.06] py-2.5 text-sm text-slate-400"
+              >
+                继续练习
+              </button>
+              <button
+                type="button"
+                onClick={confirmExitWithoutSave}
+                className="flex-1 rounded-xl bg-rose-600/80 py-2.5 text-sm font-medium text-white"
+              >
+                确认退出
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );
