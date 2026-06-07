@@ -3,6 +3,7 @@
 > 面向真实场景的 AI 英语口语练习工具：场景化对话 · 实时语音 · 发音评测 · 语法纠错 · 课后总结 · 时光回溯
 
 **线上地址（即将上线）**：[https://www.scenespeak.cn](https://www.scenespeak.cn)
+B站演示：https://www.bilibili.com/video/BV1TqE46BEgr/?spm_id_from=333.1387.homepage.video_card.click
 
 <p align="center">
   <img src="docs/screenshots/01-dashboard-scenarios.png" alt="场景探索矩阵 — 主页" width="100%" />
