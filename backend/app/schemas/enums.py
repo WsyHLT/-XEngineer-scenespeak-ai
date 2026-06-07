@@ -5,6 +5,9 @@ class SceneId(str, Enum):
     INTERVIEW = "interview"
     ORDERING = "ordering"
     MEETING = "meeting"
+    CASUAL_CHAT = "casual_chat"
+    TRAVEL = "travel"
+    IELTS = "ielts"
 
 
 class MessageRole(str, Enum):

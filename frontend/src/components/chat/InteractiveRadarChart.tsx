@@ -2,7 +2,7 @@
 
 import { useCallback, useId, useState } from "react";
 
-import type { SkillScores } from "@/lib/cockpitMockData";
+import type { SkillScores } from "@/types/history";
 
 const AXES: { key: keyof SkillScores; label: string }[] = [
   { key: "pronunciation", label: "发音" },
@@ -53,13 +53,13 @@ export default function InteractiveRadarChart({ skills, compact = false }: Props
 
   return (
     <div
-      className={`relative overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-md ${
-        compact ? "" : "shadow-[0_0_32px_rgba(99,102,241,0.08)]"
+      className={`relative overflow-hidden rounded-2xl bg-white/[0.04] p-4 backdrop-blur-md shadow-depth ${
+        compact ? "" : ""
       }`}
       onMouseLeave={handleLeave}
     >
-      <div className="mb-2 flex items-center justify-between">
-        <p className="text-xs font-semibold uppercase tracking-wider text-indigo-300/80">
+      <div className="mb-3 flex items-center justify-between">
+        <p className="text-xs font-semibold text-slate-50">
           口语能力雷达
         </p>
         <span className="text-[10px] text-slate-500">悬浮查看分数</span>
@@ -193,14 +193,14 @@ export default function InteractiveRadarChart({ skills, compact = false }: Props
 
         {tooltip && (
           <div
-            className="pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-full rounded-lg border border-indigo-500/30 bg-[#0B0F19]/95 px-2.5 py-1.5 text-xs shadow-[0_0_20px_rgba(99,102,241,0.35)] backdrop-blur-md"
+            className="pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-full rounded-[14px] bg-indigo-950/90 px-2.5 py-1.5 text-xs shadow-depth backdrop-blur-md"
             style={{
               left: `${(tooltip.x / 220) * 100}%`,
               top: `${(tooltip.y / 200) * 100}%`,
             }}
           >
-            <span className="font-medium text-indigo-200">{tooltip.label}</span>
-            <span className="ml-1.5 tabular-nums text-white">{tooltip.score}分</span>
+            <span className="font-medium text-indigo-200/80">{tooltip.label}</span>
+            <span className="font-data ml-1.5 text-slate-50">{tooltip.score}分</span>
           </div>
         )}
       </div>

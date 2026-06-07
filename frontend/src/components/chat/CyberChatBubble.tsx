@@ -5,7 +5,9 @@ import { useState } from "react";
 import AiAudioController from "@/components/chat/AiAudioController";
 import FloatingInsightPanel from "@/components/chat/FloatingInsightPanel";
 import PronunciationBubble from "@/components/PronunciationBubble";
+import Squircle from "@/components/ui/Squircle";
 import { resolveChatInsight } from "@/lib/chatInsightUtils";
+import { FONT_DATA } from "@/lib/designSystem";
 import type { ChatItem } from "@/types/chat";
 
 export type AssistantAudioProps = {
@@ -47,14 +49,14 @@ export default function CyberChatBubble({
     return (
       <div className="flex justify-end">
         <div className="max-w-[92%]">
-          <div className="rounded-2xl rounded-br-md border border-purple-500/20 bg-purple-950/40 px-4 py-3 shadow-[0_0_24px_rgba(168,85,247,0.12)] backdrop-blur-md">
-            <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-purple-50/95">
+          <div className="rounded-2xl rounded-br-md bg-violet-950/35 px-4 py-3 shadow-depth backdrop-blur-md">
+            <p className="whitespace-pre-wrap text-[15px] font-medium leading-relaxed text-slate-50">
               {content}
             </p>
           </div>
           {insight && <FloatingInsightPanel insight={insight} />}
           {item.pronunciation && (
-            <div className="mt-2 [&_*]:border-white/10 [&_*]:bg-white/[0.04] [&_*]:text-slate-200">
+            <div className="mt-2 [&_*]:bg-white/[0.04] [&_*]:text-slate-400">
               <PronunciationBubble assessment={item.pronunciation} />
             </div>
           )}
@@ -65,15 +67,18 @@ export default function CyberChatBubble({
 
   return (
     <div className="flex justify-start gap-2.5">
-      <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-blue-500/30 bg-gradient-to-br from-blue-600/80 to-indigo-700/80 text-[10px] font-bold text-white shadow-[0_0_12px_rgba(59,130,246,0.4)]">
-        AI
-      </div>
+      <Squircle
+        size="sm"
+        className="mt-1 bg-gradient-to-br from-indigo-600/90 to-violet-700/90 shadow-depth"
+      >
+        <span className={`${FONT_DATA} text-[10px] font-bold text-slate-50`}>AI</span>
+      </Squircle>
       <div className="max-w-[92%]">
-        <div className="rounded-2xl rounded-bl-md border border-blue-500/20 bg-blue-950/40 px-4 py-3 shadow-[0_0_20px_rgba(59,130,246,0.1)] backdrop-blur-md">
-          <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-sky-100/95">
+        <div className="rounded-2xl rounded-bl-md bg-indigo-950/35 px-4 py-3 shadow-depth backdrop-blur-md">
+          <p className="whitespace-pre-wrap text-[15px] font-semibold leading-relaxed text-slate-50">
             {content}
             {isStreaming && (
-              <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-sky-400 align-middle shadow-[0_0_6px_rgba(56,189,248,0.8)]" />
+              <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-indigo-300/80 align-middle" />
             )}
           </p>
 

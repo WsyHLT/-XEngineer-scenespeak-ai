@@ -5,10 +5,34 @@
 @layer base {
   html {
     -webkit-tap-highlight-color: transparent;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+  }
+
+  html::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  html::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  html::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  html::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
   }
 
   body {
-    @apply antialiased;
+    @apply font-sans antialiased;
+  }
+
+  .font-data {
+    @apply font-mono tabular-nums tracking-tight;
   }
 
   /* 防止 button 内 SVG 被撑满整卡 */
@@ -25,7 +49,34 @@
   }
 
   .glass-panel {
-    @apply border border-white/10 bg-white/[0.04] backdrop-blur-xl;
+    @apply bg-white/[0.04] backdrop-blur-xl shadow-depth;
+  }
+
+  .surface-elevated {
+    @apply bg-[#131926]/70 backdrop-blur-md shadow-depth;
+  }
+
+  .cyber-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+  }
+
+  .cyber-scrollbar::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  .cyber-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .cyber-scrollbar::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .cyber-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
   }
 
   .audio-progress-range {
@@ -45,7 +96,7 @@
     border-radius: 9999px;
     border: 2px solid white;
     background: #818cf8;
-    box-shadow: 0 0 10px rgba(99, 102, 241, 0.6);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(255, 255, 255, 0.08);
     cursor: grab;
   }
 
@@ -60,7 +111,7 @@
     border-radius: 9999px;
     border: 2px solid white;
     background: #818cf8;
-    box-shadow: 0 0 10px rgba(99, 102, 241, 0.6);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(255, 255, 255, 0.08);
     cursor: grab;
   }
 
@@ -83,7 +134,7 @@
   }
 
   .text-glow {
-    text-shadow: 0 0 24px rgba(129, 140, 248, 0.55);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
   }
 
   @keyframes border-flow-keyframes {

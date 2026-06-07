@@ -39,6 +39,7 @@ class ScoreBreakdown(BaseModel):
     grammar: float = Field(..., ge=0, le=100, description="语法正确性")
     fluency: float = Field(..., ge=0, le=100, description="流利度")
     vocabulary: float = Field(..., ge=0, le=100, description="词汇运用")
+    coherence: float = Field(..., ge=0, le=100, description="连贯性与逻辑")
     overall: float = Field(..., ge=0, le=100, description="综合得分")
 
 

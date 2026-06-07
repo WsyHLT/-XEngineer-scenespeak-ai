@@ -58,6 +58,9 @@ class PromptManager:
             SceneId.INTERVIEW: "formal job interview",
             SceneId.ORDERING: "casual restaurant ordering",
             SceneId.MEETING: "professional team meeting",
+            SceneId.CASUAL_CHAT: "casual friendly small talk",
+            SceneId.TRAVEL: "airport customs and immigration",
+            SceneId.IELTS: "IELTS speaking exam practice",
         }[scene_id]
 
         return [

@@ -7,6 +7,7 @@ const DIMENSIONS: { key: keyof ScoreBreakdown; label: string; color: string }[] 
   { key: "grammar", label: "语法", color: "bg-indigo-500" },
   { key: "fluency", label: "流利度", color: "bg-cyan-500" },
   { key: "vocabulary", label: "词汇", color: "bg-emerald-500" },
+  { key: "coherence", label: "连贯性", color: "bg-purple-500" },
 ];
 
 type Props = {
