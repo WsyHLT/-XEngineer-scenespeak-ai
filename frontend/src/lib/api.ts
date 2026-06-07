@@ -8,6 +8,7 @@ import type {
   TurnEventPayload,
   PronunciationAssessment,
 } from "@/types/api";
+import { getAuthHeaders, redirectToLogin } from "@/lib/auth";
 
 /** 默认走同源代理（next.config rewrites）；仅调试时设 NEXT_PUBLIC_API_URL */
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -57,9 +58,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...getAuthHeaders(),
       ...init?.headers,
     },
   });
+  if (res.status === 401) {
+    redirectToLogin();
+    throw new Error("未授权访问，请重新登录");
+  }
   if (!res.ok) {
     const detail = await res.text();
     throw new Error(extractDetailFromErrorBody(detail) || `HTTP ${res.status}`);
@@ -133,7 +139,7 @@ export async function* consumeSSE(
   try {
     res = await fetch(`${API_BASE}${path}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...getAuthHeaders() },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
@@ -141,9 +147,13 @@ export async function* consumeSSE(
     clearTimeout(timer);
   }
 
+  if (res.status === 401) {
+    redirectToLogin();
+    throw new Error("未授权访问，请重新登录");
+  }
   if (!res.ok) {
     const detail = await res.text();
-    if (res.status === 401 || detail.includes("api_key")) {
+    if (detail.includes("api_key")) {
       throw new Error("后端 LLM API Key 未配置，请编辑 backend/.env 填入 OPENAI_API_KEY");
     }
     throw new Error(detail || `请求失败 HTTP ${res.status}`);
@@ -187,8 +197,13 @@ export async function transcribeAudio(
   form.append("file", blob, filename);
   const res = await fetch(`${API_BASE}/api/chat/transcribe`, {
     method: "POST",
+    headers: getAuthHeaders(),
     body: form,
   });
+  if (res.status === 401) {
+    redirectToLogin();
+    throw new Error("未授权访问，请重新登录");
+  }
   if (!res.ok) {
     const detail = await res.text();
     if (res.status === 404) {
@@ -216,8 +231,13 @@ export async function assessPronunciation(
   form.append("reference_text", referenceText.trim());
   const res = await fetch(`${API_BASE}/api/chat/assess-pronunciation`, {
     method: "POST",
+    headers: getAuthHeaders(),
     body: form,
   });
+  if (res.status === 401) {
+    redirectToLogin();
+    throw new Error("未授权访问，请重新登录");
+  }
   if (!res.ok) {
     const detail = await res.text();
     throw new Error(extractDetailFromErrorBody(detail) || `发音评测失败 HTTP ${res.status}`);
@@ -235,13 +255,17 @@ export async function synthesizeSpeech(
   try {
     const res = await fetch(`${API_BASE}/api/chat/synthesize`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...getAuthHeaders() },
       body: JSON.stringify({
         text: text.trim(),
         ...(voiceId ? { voice_id: voiceId } : {}),
       }),
       signal: controller.signal,
     });
+    if (res.status === 401) {
+      redirectToLogin();
+      throw new Error("未授权访问，请重新登录");
+    }
     if (!res.ok) {
       const detail = await res.text();
       throw new Error(extractDetailFromErrorBody(detail) || `TTS failed HTTP ${res.status}`);

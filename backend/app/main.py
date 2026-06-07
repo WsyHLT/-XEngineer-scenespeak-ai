@@ -4,11 +4,15 @@ from fastapi.responses import Response
 
 from app.api.router import api_router
 from app.core.config import settings
+from app.middleware.access_auth import AccessAuthMiddleware
 
 app = FastAPI(
     title="SceneSpeak AI",
     description="Real-time English speaking practice with STT, LLM, TTS, and pronunciation feedback.",
     version="0.1.0",
+    docs_url="/docs" if not settings.is_auth_enabled() else None,
+    redoc_url="/redoc" if not settings.is_auth_enabled() else None,
+    openapi_url="/openapi.json" if not settings.is_auth_enabled() else None,
 )
 
 app.openapi_tags = [
@@ -24,6 +28,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(AccessAuthMiddleware)
 
 app.include_router(api_router)
 

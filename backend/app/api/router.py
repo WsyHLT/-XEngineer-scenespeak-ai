@@ -1,8 +1,9 @@
 from fastapi import APIRouter
 
-from app.api.routes import chat, scenes, session
+from app.api.routes import auth, chat, scenes, session
 
 api_router = APIRouter()
+api_router.include_router(auth.router)
 api_router.include_router(scenes.router)
 api_router.include_router(session.router)
 api_router.include_router(chat.router)
