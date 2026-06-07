@@ -68,6 +68,11 @@ class Settings(BaseSettings):
     port: int = 8000
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
 
+    # ── 站点访问密码（部署必设，留空则本地开发不拦截）──
+    site_access_password: str = ""
+    auth_secret_key: str = ""
+    auth_token_ttl_hours: int = 168
+
     max_session_turns: int = 30
 
     # Coach dialogue
@@ -81,6 +86,20 @@ class Settings(BaseSettings):
 
     llm_timeout_seconds: float = 60.0
     llm_enable_thinking: bool = False
+
+    def is_auth_enabled(self) -> bool:
+        return bool(self.site_access_password.strip())
+
+    def get_auth_secret(self) -> str:
+        if self.auth_secret_key.strip():
+            return self.auth_secret_key.strip()
+        if self.site_access_password.strip():
+            import hashlib
+
+            return hashlib.sha256(
+                f"scenespeak-auth:{self.site_access_password}".encode(),
+            ).hexdigest()
+        return ""
 
     @field_validator("stt_language_hints", mode="before")
     @classmethod

@@ -2,6 +2,8 @@
 
 > 面向真实场景的 AI 英语口语练习工具：场景化对话 · 实时语音 · 发音评测 · 语法纠错 · 课后总结 · 时光回溯
 
+**线上地址（即将上线）**：[https://www.scenespeak.cn](https://www.scenespeak.cn)
+
 <p align="center">
   <img src="docs/screenshots/01-dashboard-scenarios.png" alt="场景探索矩阵 — 主页" width="100%" />
 </p>
@@ -23,6 +25,42 @@
 - **课后 LLM 报告** — 五维雷达评分（发音 / 语法 / 词汇 / 流畅度 / 连贯性）+ 提升建议
 - **时光回溯** — 本地持久化练习历史，支持筛选、删除、纠错报告回看
 - **进化追踪** — 近 7 次练习驱动雷达图、连续打卡与每日地道表达特训
+- **访问密码保护** — 部署后可配置站点密码，防止 API 被未授权盗刷
+
+## 生产部署（www.scenespeak.cn）
+
+计划上线域名：**https://www.scenespeak.cn**
+
+推荐架构：Nginx（HTTPS）→ Next.js 前端（公网）→ FastAPI 后端（仅内网 `127.0.0.1:8000`，由 Next 反向代理 `/api`）。
+
+### 后端 `backend/.env`（生产）
+
+```env
+SITE_ACCESS_PASSWORD=<强密码，仅团队知晓>
+AUTH_SECRET_KEY=<随机长字符串，可选但推荐>
+AUTH_TOKEN_TTL_HOURS=168
+CORS_ORIGINS=https://www.scenespeak.cn,https://scenespeak.cn
+HOST=127.0.0.1
+PORT=8000
+```
+
+### 前端 `frontend/.env.local`（生产）
+
+```env
+ACCESS_PASSWORD_REQUIRED=true
+BACKEND_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_WS_URL=wss://www.scenespeak.cn/api/chat/ws
+```
+
+### 上线检查清单
+
+- [ ] DNS 将 `www.scenespeak.cn` 解析至服务器
+- [ ] 配置 HTTPS 证书（Let's Encrypt / 云厂商）
+- [ ] 设置 `SITE_ACCESS_PASSWORD` 与 `ACCESS_PASSWORD_REQUIRED=true`
+- [ ] **不要**公网暴露 8000 端口，仅 Nginx 转发 443 → 3000
+- [ ] 云 API（LLM / STT / TTS）控制台设置额度告警
+
+用户首次访问 `www.scenespeak.cn` 将进入 `/login`，验证密码后方可使用口语时空舱。
 
 ## 技术架构
 
@@ -85,6 +123,29 @@ npm run dev
 | `backend/.env` | LLM API Key、模型名称、STT/TTS 配置、CORS 等 |
 | `frontend/.env.local` | 可选：`NEXT_PUBLIC_API_URL` 直连后端地址 |
 
+### 部署访问密码（防 API 盗刷）
+
+在 `backend/.env` 设置：
+
+```env
+SITE_ACCESS_PASSWORD=你的强密码
+CORS_ORIGINS=https://www.scenespeak.cn,https://scenespeak.cn
+```
+
+在 `frontend/.env.local` 设置：
+
+```env
+ACCESS_PASSWORD_REQUIRED=true
+BACKEND_URL=http://127.0.0.1:8000   # 或内网后端地址
+```
+
+效果：
+
+- 未登录无法打开主页（Next.js 中间件）
+- 所有 `/api/*` 请求需 `Authorization: Bearer <token>`（FastAPI 中间件）
+- 开启密码后自动关闭 `/docs` OpenAPI 文档
+- 本地开发：`SITE_ACCESS_PASSWORD` 留空即可，无需登录
+
 > `.env` 与 `.env.local` 已被 `.gitignore` 忽略，请勿提交敏感信息。
 
 ## 开发进度
@@ -95,6 +156,8 @@ npm run dev
 - [x] 后端 `/api/session/{id}/end` LLM 课后报告
 - [x] 时光回溯（localStorage 持久化、CRUD、场景筛选）
 - [x] 进化追踪（近 7 次练习驱动雷达 / 打卡 / 每日特训）
+- [x] 站点访问密码（Bearer Token + 登录页，防 API 盗刷）
+- [ ] www.scenespeak.cn 生产环境部署与 HTTPS
 - [ ] 后端数据库持久化与用户账号体系
 
 ## License
