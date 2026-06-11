@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="AI 英语口语陪练平台">
+  <meta name="author" content="AI 英语口语陪练">
+
+  <title>AI 英语口语陪练</title>
+
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="/css/style.css?v=layout-fixed-1">
+</head>
+
+<body>
+  <div class="theme-toggle">
+    <button id="theme-btn" aria-label="Toggle theme">
+      <i class="fas fa-moon"></i>
+    </button>
+  </div>
+
+  <header>
+    <div class="header-content">
+      <div class="logo-section">
+        <i class="fas fa-graduation-cap"></i>
+        <h1>AI 英语口语陪练</h1>
+      </div>
+      <h2>面向真实场景的英语对话训练工具</h2>
+      <div class="status-indicator">
+        <span id="connection-status" class="status-dot connected"></span>
+        <span id="status-text">准备练习</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="learning-dashboard" id="learning-dashboard">
+      <div class="dashboard-header">
+        <h3><i class="fas fa-chart-line"></i> 学习进度</h3>
+        <button id="toggle-dashboard" class="btn-icon" aria-label="Toggle dashboard">
+          <i class="fas fa-chevron-up"></i>
+        </button>
+      </div>
+
+      <div class="dashboard-content">
+        <div class="progress-cards">
+          <div class="progress-card">
+            <div class="card-icon grammar"><i class="fas fa-spell-check"></i></div>
+            <div class="card-content">
+              <h4>语法评分</h4>
+              <div class="score" id="grammar-score">85%</div>
+              <div class="progress-bar"><div class="progress-fill" style="width: 85%"></div></div>
+            </div>
+          </div>
+
+          <div class="progress-card">
+            <div class="card-icon pronunciation"><i class="fas fa-microphone-alt"></i></div>
+            <div class="card-content">
+              <h4>发音评分</h4>
+              <div class="score" id="pronunciation-score">78%</div>
+              <div class="progress-bar"><div class="progress-fill" style="width: 78%"></div></div>
+            </div>
+          </div>
+
+          <div class="progress-card">
+            <div class="card-icon vocabulary"><i class="fas fa-book-open"></i></div>
+            <div class="card-content">
+              <h4>词汇表达</h4>
+              <div class="score" id="vocabulary-score">92%</div>
+              <div class="progress-bar"><div class="progress-fill" style="width: 92%"></div></div>
+            </div>
+          </div>
+
+          <div class="progress-card">
+            <div class="card-icon fluency"><i class="fas fa-comments"></i></div>
+            <div class="card-content">
+              <h4>流利度</h4>
+              <div class="score" id="fluency-score">81%</div>
+              <div class="progress-bar"><div class="progress-fill" style="width: 81%"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="session-summary-panel" id="session-summary-panel" hidden>
+          <div class="summary-header">
+            <h4><i class="fas fa-clipboard-check"></i> 课后总结</h4>
+            <span id="summary-scenario">通用练习</span>
+          </div>
+          <div id="summary-content" class="summary-content"></div>
+        </div>
+
+        <div class="learning-stats">
+          <div class="stat-item"><i class="fas fa-fire"></i><span>连续练习 7 天</span></div>
+          <div class="stat-item"><i class="fas fa-clock"></i><span>今日 45 分钟</span></div>
+          <div class="stat-item"><i class="fas fa-star"></i><span>等级：中级</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="learning-modes">
+      <h3><i class="fas fa-play-circle"></i> 选择练习模式</h3>
+      <div class="mode-grid">
+        <div class="mode-card active" data-mode="conversation">
+          <div class="mode-icon"><i class="fas fa-comments"></i></div>
+          <h4>自由对话</h4>
+          <p>和 AI 导师进行自然英语交流</p>
+        </div>
+
+        <div class="mode-card" data-mode="grammar">
+          <div class="mode-icon"><i class="fas fa-spell-check"></i></div>
+          <h4>语法专项</h4>
+          <p>针对语法错误进行纠正和练习</p>
+        </div>
+
+        <div class="mode-card" data-mode="pronunciation">
+          <div class="mode-icon"><i class="fas fa-microphone-alt"></i></div>
+          <h4>发音训练</h4>
+          <p>获得发音、音素和清晰度反馈</p>
+        </div>
+
+        <div class="mode-card" data-mode="vocabulary">
+          <div class="mode-icon"><i class="fas fa-book-open"></i></div>
+          <h4>词汇表达</h4>
+          <p>在对话中学习更自然的表达</p>
+        </div>
+
+        <div class="mode-card" data-mode="fluency">
+          <div class="mode-icon"><i class="fas fa-rocket"></i></div>
+          <h4>流利度训练</h4>
+          <p>提升连续表达和反应速度</p>
+        </div>
+
+        <div class="mode-card" data-mode="scenario">
+          <div class="mode-icon"><i class="fas fa-briefcase"></i></div>
+          <h4>场景陪练</h4>
+          <p>面试、点餐、会议等真实情境</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-panel" id="settings-panel">
+      <div class="settings-header">
+        <h3><i class="fas fa-cog"></i> 练习设置</h3>
+        <button id="close-settings" aria-label="Close settings"><i class="fas fa-times"></i></button>
+      </div>
+
+      <div class="setting-group">
+        <label for="tutor-mode">AI 导师模式：</label>
+        <select id="tutor-mode">
+          <option value="conversation_partner">对话伙伴</option>
+          <option value="grammar_tutor">语法导师</option>
+          <option value="pronunciation_coach">发音教练</option>
+          <option value="vocabulary_builder">词汇教练</option>
+          <option value="fluency_coach">流利度教练</option>
+        </select>
+      </div>
+
+      <div class="setting-group">
+        <label for="difficulty-level">难度等级：</label>
+        <select id="difficulty-level">
+          <option value="beginner">初级</option>
+          <option value="intermediate">中级</option>
+          <option value="advanced">高级</option>
+          <option value="native">接近母语</option>
+        </select>
+      </div>
+
+      <div class="setting-group">
+        <label for="feedback-style">纠错方式：</label>
+        <select id="feedback-style">
+          <option value="gentle">温和鼓励</option>
+          <option value="detailed">详细分析</option>
+          <option value="immediate">即时纠错</option>
+          <option value="summary">课后总结</option>
+        </select>
+      </div>
+
+      <div class="setting-group">
+        <label for="language-select">识别口音：</label>
+        <select id="language-select">
+          <option value="en-US">美式英语</option>
+          <option value="en-GB">英式英语</option>
+          <option value="en-AU">澳式英语</option>
+          <option value="en-CA">加拿大英语</option>
+        </select>
+      </div>
+
+      <div class="setting-group">
+        <label for="voice-select">导师声音：</label>
+        <select id="voice-select">
+          <option value="">默认声音</option>
+        </select>
+      </div>
+
+      <div class="setting-group">
+        <label for="session-length">练习时长：</label>
+        <select id="session-length">
+          <option value="5">5 分钟</option>
+          <option value="10">10 分钟</option>
+          <option value="15">15 分钟</option>
+          <option value="30">30 分钟</option>
+          <option value="unlimited">不限时</option>
+        </select>
+      </div>
+
+      <div class="setting-group">
+        <button id="clear-progress" class="btn-secondary">
+          <i class="fas fa-chart-line"></i> 查看详细进度
+        </button>
+      </div>
+
+      <div class="setting-group">
+        <button id="clear-history" class="btn-secondary">
+          <i class="fas fa-trash"></i> 清空练习记录
+        </button>
+      </div>
+    </div>
+
+    <div class="chat-container">
+      <div class="feedback-panel" id="feedback-panel">
+        <div class="feedback-header">
+          <h4><i class="fas fa-lightbulb"></i> AI 反馈</h4>
+          <button id="toggle-feedback" class="btn-icon">
+            <i class="fas fa-chevron-down"></i>
+          </button>
+        </div>
+
+        <div class="feedback-content">
+          <div class="feedback-item grammar-feedback">
+            <h5><i class="fas fa-spell-check"></i> 语法</h5>
+            <div id="grammar-feedback">开始说英语后，这里会显示语法反馈。</div>
+          </div>
+
+          <div class="feedback-item pronunciation-feedback">
+            <h5><i class="fas fa-microphone-alt"></i> 发音</h5>
+            <div id="pronunciation-feedback">开始录音后，这里会显示发音评分。</div>
+          </div>
+
+          <div class="feedback-item vocabulary-feedback">
+            <h5><i class="fas fa-book-open"></i> 表达</h5>
+            <div id="vocabulary-feedback">更自然的表达建议会显示在这里。</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="chat-workspace-card">
+        <div class="chat-history" id="chat-history">
+          <div class="welcome-message">
+            <div class="message tutor-message">
+              <div class="message-avatar">
+                <i class="fas fa-graduation-cap"></i>
+              </div>
+              <div class="message-content">
+                <p>你好，我是你的 AI 英语口语陪练。请选择一个练习模式或场景，然后点击麦克风开始用英语对话。我会在不打断交流的前提下给出纠错和反馈。</p>
+                <p><small><em>提示：如果未配置大模型 API，系统会使用演示回复，但录音、评分和课后总结流程仍可展示。</em></small></p>
+              </div>
+              <div class="message-time" data-time=""></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="current-conversation">
+          <div class="conversation-item user-input">
+            <span class="label"><i class="fas fa-user"></i> 你说：</span>
+            <em class="output-you">点击麦克风开始练习...</em>
+
+            <div class="transcript-confirmation" id="transcript-confirmation" hidden>
+              <label for="transcript-editor">识别结果可修改：</label>
+              <textarea id="transcript-editor" rows="2" spellcheck="true"></textarea>
+              <div class="transcript-actions">
+                <button id="send-transcript-btn" class="btn-secondary" type="button">确认并发送</button>
+                <button id="retry-recording-btn" class="btn-light" type="button">重新录音</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="conversation-item tutor-response">
+            <span class="label"><i class="fas fa-graduation-cap"></i> AI 导师：</span>
+            <em class="output-bot">我已经准备好了，选择场景后即可开始。</em>
+          </div>
+        </div>
+
+        <div class="voice-controls">
+          <button id="mic-btn" class="mic-button" aria-label="开始口语练习">
+            <i class="fas fa-microphone"></i>
+            <div class="pulse-ring"></div>
+          </button>
+
+          <div class="control-buttons">
+            <button id="settings-btn" class="control-btn" aria-label="打开设置">
+              <i class="fas fa-cog"></i>
+            </button>
+            <button id="mute-btn" class="control-btn" aria-label="切换静音">
+              <i class="fas fa-volume-up"></i>
+            </button>
+            <button id="stop-btn" class="control-btn" aria-label="停止朗读">
+              <i class="fas fa-stop"></i>
+            </button>
+            <button id="feedback-btn" class="control-btn" aria-label="显示或隐藏反馈">
+              <i class="fas fa-lightbulb"></i>
+            </button>
+            <button id="summary-btn" class="control-btn" aria-label="结束练习并查看总结">
+              <i class="fas fa-clipboard-check"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="session-timer" id="session-timer">
+          <i class="fas fa-clock"></i>
+          <span id="timer-display">00:00</span>
+        </div>
+
+        <div class="loading-indicator" id="loading-indicator">
+          <div class="typing-dots">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <p>AI 正在分析你的表达...</p>
+        </div>
+
+        <div class="voice-visualizer" id="voice-visualizer">
+          <canvas id="visualizer-canvas"></canvas>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <div class="modal" id="scenario-modal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3><i class="fas fa-briefcase"></i> 选择练习场景</h3>
+        <button class="modal-close" onclick="closeScenarioModal()">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <div class="scenario-grid">
+          <div class="scenario-card" data-scenario="job-interview">
+            <i class="fas fa-briefcase"></i>
+            <h4>面试</h4>
+            <p>练习自我介绍、项目经历和追问回答</p>
+          </div>
+
+          <div class="scenario-card" data-scenario="restaurant">
+            <i class="fas fa-utensils"></i>
+            <h4>点餐</h4>
+            <p>练习点餐、询问菜单和礼貌表达</p>
+          </div>
+
+          <div class="scenario-card" data-scenario="meeting">
+            <i class="fas fa-users-gear"></i>
+            <h4>会议</h4>
+            <p>练习工作汇报、观点表达和行动项确认</p>
+          </div>
+
+          <div class="scenario-card" data-scenario="travel">
+            <i class="fas fa-plane"></i>
+            <h4>旅行</h4>
+            <p>练习机场、酒店和问路场景</p>
+          </div>
+
+          <div class="scenario-card" data-scenario="shopping">
+            <i class="fas fa-shopping-cart"></i>
+            <h4>购物</h4>
+            <p>练习询问商品、价格和退换货</p>
+          </div>
+
+          <div class="scenario-card" data-scenario="medical">
+            <i class="fas fa-stethoscope"></i>
+            <h4>就医</h4>
+            <p>练习描述症状和医生问诊</p>
+          </div>
+
+          <div class="scenario-card" data-scenario="social">
+            <i class="fas fa-users"></i>
+            <h4>社交</h4>
+            <p>练习寒暄、兴趣和日常聊天</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="error-toast">
+    <div class="toast-content">
+      <i class="fas fa-info-circle"></i>
+      <span id="toast-message"></span>
+    </div>
+    <button class="toast-close" onclick="hideToast()">
+      <i class="fas fa-times"></i>
+    </button>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/script.js?v=layout-fixed-1"></script>
+  <script src="/js/microphone-fix.js?v=layout-fixed-1"></script>
+</body>
+</html>
